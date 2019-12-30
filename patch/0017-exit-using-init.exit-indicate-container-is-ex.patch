@@ -1,0 +1,65 @@
+From f83e391aef03283b30431a960b66f720cf0d9dd3 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 11 Feb 2019 20:12:15 +0800
+Subject: [PATCH 17/27] exit:  using init.exit indicate container is
+ exiting
+
+reason: testCE_docker_hook_spec_ABN.053.sh
+kill dockerd during docker stop in post-stophook, containerd will load
+task and treat as ok when shim response client. add init.exit to forbid
+load exiting task.
+
+Change-Id: I8f03cd51088d43d4fb457b32981f3eebd8558f84
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ runtime/v1/linux/proc/init.go | 1 +
+ runtime/v1/linux/runtime.go   | 5 +++++
+ runtime/v1/shim/service.go    | 4 +++-
+ 3 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/v1/linux/proc/init.go b/runtime/v1/linux/proc/init.go
+index 5b23671..caa31c3 100644
+--- a/runtime/v1/linux/proc/init.go
++++ b/runtime/v1/linux/proc/init.go
+@@ -43,6 +43,7 @@ import (
+ 
+ // InitPidFile name of the file that contains the init pid
+ const InitPidFile = "init.pid"
++const InitExit = "init.exit"
+ 
+ // Init represents an initial process for a container
+ type Init struct {
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index 3b66304..123d675 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -378,6 +378,11 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 			log.G(ctx).Warnf("delete force %s Pid=-1 error=%v", id, err)
+ 			continue
+ 		}
++		if _, err := os.Stat(filepath.Join(bundle.path, proc.InitExit)); err == nil {
++			_, err := t.DeleteForce(ctx)
++			log.G(ctx).Warnf("delete force %s Pid=%d(exiting) error=%v", id, pid, err)
++			continue
++		}
+ 		log.G(ctx).Infof("load-task %s Pid=%d done", id, pid)
+ 		o = append(o, t)
+ 	}
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index 679982a..8c7984f 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -504,7 +504,9 @@ func (s *Service) checkProcesses(e runc.Exit) {
+ 
+ 	for _, p := range s.processes {
+ 		if p.Pid() == e.Pid {
+-
++			if ip, ok := p.(*proc.Init); ok {
++				ioutil.WriteFile(filepath.Join(ip.Bundle, proc.InitExit), []byte(fmt.Sprintf("%d", e.Pid)), 0600)
++			}
+ 			if shouldKillAll {
+ 				if ip, ok := p.(*proc.Init); ok {
+ 					// Ensure all children are killed
+-- 
+2.7.4.3
+

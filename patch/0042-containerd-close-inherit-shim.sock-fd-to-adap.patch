@@ -1,0 +1,34 @@
+From dcef6fcbdc78f7e9c14bdcd58e79d3eac8bc1c1b Mon Sep 17 00:00:00 2001
+From: jiangpengfei <jiangpengfei9@huawei.com>
+Date: Thu, 18 Jul 2019 15:44:12 -0400
+Subject: [PATCH] containerd: close inherit shim.sock fd to adapt runv
+
+reason: runv create prcess is created by containerd-shim process and will
+inherit the abstract unix socket shim.sock fd from containerd-shim.
+If pause container restart, qemu and runv-proxy process are still running,
+and shim.sock fd doesn't close, so pause container can not reuse the shim.sock
+path and restart failed!
+
+Signed-off-by: jiangpengfei <jiangpengfei9@huawei.com>
+---
+ cmd/containerd-shim/main_unix.go | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/cmd/containerd-shim/main_unix.go b/cmd/containerd-shim/main_unix.go
+index 38b3eb4..89f6be9 100644
+--- a/cmd/containerd-shim/main_unix.go
++++ b/cmd/containerd-shim/main_unix.go
+@@ -189,6 +189,10 @@ func serve(ctx context.Context, server *ttrpc.Server, path string) error {
+ 	)
+ 	if path == "" {
+ 		l, err = net.FileListener(os.NewFile(3, "socket"))
++		_, _, errnoValue := unix.Syscall(unix.SYS_FCNTL, 3, uintptr(unix.F_SETFD), unix.FD_CLOEXEC)
++		if errnoValue != 0 {
++			logrus.Errorf("SYS_FCNTL set fd 3 FD_CLOEXEC flag failed: %v", errnoValue)
++		}
+ 		path = "[inherited from parent]"
+ 	} else {
+ 		if len(path) > 106 {
+-- 
+1.8.3.1
+

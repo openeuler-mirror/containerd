@@ -1,0 +1,54 @@
+From f96039fcd94c5bc75dcec297668418811d60e785 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Tue, 19 Feb 2019 11:53:41 +0800
+Subject: [PATCH 24/27] create:  cleanup runc dirty files on start
+
+reason: add check before cleanup runtime dirty files.
+
+Change-Id: I6f218fd8d19ed65d8b13ae1ea744b80574279f83
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ hack/containerd.spec                         | 2 +-
+ vendor/github.com/containerd/go-runc/runc.go | 6 +++++-
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/hack/containerd.spec b/hack/containerd.spec
+index f39c57a..869012a 100644
+--- a/hack/containerd.spec
++++ b/hack/containerd.spec
+@@ -3,7 +3,7 @@
+ Version:        1.2.0
+ 
+ Name:           containerd
+-Release:        5%{?dist}
++Release:        6%{?dist}
+ Summary:        An industry-standard container runtime
+ License:        ASL 2.0
+ URL:            https://containerd.io
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index fc64e8a..e66ea5b 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -30,6 +30,7 @@ import (
+ 	"strings"
+ 	"syscall"
+ 	"time"
++	"github.com/sirupsen/logrus"
+ 
+ 	specs "github.com/opencontainers/runtime-spec/specs-go"
+ )
+@@ -140,7 +141,10 @@ func (o *CreateOpts) args() (out []string, err error) {
+ 
+ // Create creates a new container and returns its pid if it was created successfully
+ func (r *Runc) Create(context context.Context, id, bundle string, opts *CreateOpts) error {
+-	r.Delete(context, id, &DeleteOpts{Force: true})
++	if _, err := os.Stat(filepath.Join(r.Root, id)); err == nil {
++		logrus.Warnf("cleanup residue runtime with bundle %s root=%s", bundle, r.Root)
++		r.Delete(context, id, &DeleteOpts{Force: true})
++	}
+ 
+ 	args := []string{"create", "--bundle", bundle}
+ 	if opts != nil {
+-- 
+2.7.4.3
+

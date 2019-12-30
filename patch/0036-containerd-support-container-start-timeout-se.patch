@@ -1,0 +1,69 @@
+From 1980e34108cf2fab407c4e0b45cb07fc06e15642 Mon Sep 17 00:00:00 2001
+From: lixiang172 <lixiang172@huawei.com>
+Date: Thu, 9 May 2019 21:36:56 +0800
+Subject: [PATCH] containerd:  support container start timeout setting
+
+Change-Id: I8c958a1c16ed6c7a86e4c6299ad1ef81c7476120
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ vendor/github.com/containerd/go-runc/runc.go | 24 ++++++++++++++++++++++--
+ 1 file changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index e66ea5b..6323bf2 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -30,9 +30,9 @@ import (
+ 	"strings"
+ 	"syscall"
+ 	"time"
+-	"github.com/sirupsen/logrus"
+ 
+ 	specs "github.com/opencontainers/runtime-spec/specs-go"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // Format is the type of log formatting options avaliable
+@@ -54,7 +54,10 @@ const (
+ 	// DefaultCommand is the default command for Runc
+ 	DefaultCommand = "runc"
+ 	execTimeout    = 30
+-	createTimeout  = 120
++)
++
++var (
++	createTimeout int64 = 120
+ )
+ 
+ // Runc is the client to the runc cli
+@@ -72,6 +75,15 @@ type Runc struct {
+ 	Rootless      *bool // nil stands for "auto"
+ }
+ 
++func init() {
++	runtimeTimeout, err := convertTime(os.Getenv("DOCKER_RUNTIME_START_TIMEOUT"))
++	if err != nil {
++		logrus.Warnf("init error, wrong runtimeTimeout format: %v", err)
++	} else {
++		createTimeout = runtimeTimeout
++	}
++}
++
+ // List returns all containers created inside the provided runc root directory
+ func (r *Runc) List(context context.Context) ([]*Container, error) {
+ 	data, err := cmdOutput(r.command(context, "list", "--format=json"), false)
+@@ -734,3 +746,11 @@ func cmdOutputTimeout(cmd *exec.Cmd, combined bool, timeout int64) ([]byte, erro
+ 
+ 	return b.Bytes(), err
+ }
++
++func convertTime(timeout string) (int64, error) {
++	timeDura, err := time.ParseDuration(timeout)
++	if err != nil {
++		return 0, err
++	}
++	return timeDura.Nanoseconds() / 1e9, nil
++}
+-- 
+1.8.3.1
+

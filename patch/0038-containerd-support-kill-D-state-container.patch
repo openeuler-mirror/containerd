@@ -1,0 +1,65 @@
+From 8ab02b5aecb0fa04ad747988d838e1c4de535222 Mon Sep 17 00:00:00 2001
+From: Jing Rui <jingrui@huawei.com>
+Date: Tue, 18 Jun 2019 00:12:41 +0800
+Subject: [PATCH] containerd:  support kill D state container
+
+Change-Id: I057553f2b8d3f57b71e5ea79930067bb7071e524
+Signed-off-by: Jing Rui <jingrui@huawei.com>
+---
+ runtime/v1/shim/service.go | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index f421fdef..8adaf35b 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -26,6 +26,7 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"sync"
++	"syscall"
+ 	"time"
+ 
+ 	"github.com/containerd/console"
+@@ -366,11 +367,30 @@ func (s *Service) Resume(ctx context.Context, r *ptypes.Empty) (*ptypes.Empty, e
+ 
+ // Kill a process with the provided signal
+ func (s *Service) Kill(ctx context.Context, r *shimapi.KillRequest) (*ptypes.Empty, error) {
++	delayKill := func(p rproc.Process) {
++		if s.id != p.ID() || r.Signal != uint32(syscall.SIGKILL) {
++			return
++		}
++
++		for i := 1; i < 5; i++ {
++			time.Sleep(10 * time.Second)
++			err := p.Kill(ctx, r.Signal, r.All)
++			logrus.Infof("delay kill %s retry %d error=%v", s.id, i, err)
++		}
++
++		logrus.Infof("force exit shim %s ...", s.id)
++		p.SetExited(137)
++		err := p.Delete(ctx)
++		logrus.Infof("force exit shim %s error=%v", s.id, err)
++		os.Exit(0)
++	}
++
+ 	if r.ID == "" {
+ 		p, err := s.getInitProcess()
+ 		if err != nil {
+ 			return nil, err
+ 		}
++		go delayKill(p)
+ 		if err := p.Kill(ctx, r.Signal, r.All); err != nil {
+ 			return nil, errdefs.ToGRPC(err)
+ 		}
+@@ -381,6 +401,7 @@ func (s *Service) Kill(ctx context.Context, r *shimapi.KillRequest) (*ptypes.Emp
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	go delayKill(p)
+ 	if err := p.Kill(ctx, r.Signal, r.All); err != nil {
+ 		return nil, errdefs.ToGRPC(err)
+ 	}
+-- 
+2.17.1
+

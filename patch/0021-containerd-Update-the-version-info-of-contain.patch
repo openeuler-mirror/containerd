@@ -1,0 +1,59 @@
+From 818ef5fe43d3b9b4c53301800d545ce4c775afff Mon Sep 17 00:00:00 2001
+From: lixiang172 <lixiang172@huawei.com>
+Date: Tue, 12 Feb 2019 11:37:37 +0800
+Subject: [PATCH 21/27] containerd:  Update the version info of
+ containerd
+
+reason: Update the version info after type "containerd -v"
+The version info now is defined by "containerd.spec" rather than
+"version.go"
+
+Change-Id: I04c6b78737e09f93a3e84a100c88be19294a5c4f
+Signed-off-by: lixiang172 <lixiang172@huawei.com>
+---
+ Makefile           | 8 ++++----
+ version/version.go | 2 +-
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index 35021fd..e38dfb3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -20,8 +20,8 @@ ROOTDIR=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+ DESTDIR=/usr/local
+ 
+ # Used to populate variables in version package.
+-VERSION=$(shell git describe --match 'v[0-9]*' --dirty='.m' --always)
+-REVISION=$(shell git rev-parse HEAD)$(shell if ! git diff --no-ext-diff --quiet --exit-code; then echo .m; fi)
++VERSION=$(shell echo version:)$(shell grep '^Version' ${ROOTDIR}/hack/containerd.spec | sed 's/[^0-9.]*\([0-9.]*\).*/\1/').$(shell grep '^Release:' ${ROOTDIR}/hack/containerd.spec | sed 's/[^0-9.]*\([0-9.]*\).*/\1/')
++REVISION=$(shell echo commit:)$(shell git rev-parse HEAD)$(shell if ! git diff --no-ext-diff --quiet --exit-code; then echo .m; fi)
+ 
+ ifneq "$(strip $(shell command -v go 2>/dev/null))" ""
+ 	GOOS ?= $(shell go env GOOS)
+@@ -77,8 +77,8 @@ MANPAGES=ctr.1 containerd.1 containerd-config.1 containerd-config.toml.5
+ # Build tags seccomp and apparmor are needed by CRI plugin.
+ BUILDTAGS ?= seccomp apparmor
+ GO_TAGS=$(if $(BUILDTAGS),-tags "$(BUILDTAGS)",)
+-GO_LDFLAGS=-ldflags '-s -w -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -X $(PKG)/version.Package=$(PKG) $(EXTRA_LDFLAGS)'
+-SHIM_GO_LDFLAGS=-ldflags '-s -w -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -X $(PKG)/version.Package=$(PKG) -extldflags "-static"'
++GO_LDFLAGS=-ldflags '-s -w -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(EXTRA_LDFLAGS)'
++SHIM_GO_LDFLAGS=-ldflags '-s -w -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -extldflags "-static"'
+ 
+ #Replaces ":" (*nix), ";" (windows) with newline for easy parsing
+ GOPATHS=$(shell echo ${GOPATH} | tr ":" "\n" | tr ";" "\n")
+diff --git a/version/version.go b/version/version.go
+index b2874bf..04b7097 100644
+--- a/version/version.go
++++ b/version/version.go
+@@ -18,7 +18,7 @@ package version
+ 
+ var (
+ 	// Package is filled at linking time
+-	Package = "github.com/containerd/containerd"
++	Package = ""
+ 
+ 	// Version holds the complete version number. Filled in at linking time.
+ 	Version = "1.2.0+unknown"
+-- 
+2.7.4.3
+

@@ -1,0 +1,55 @@
+From 26c6307f1cab31105583ef22c2da8fe44a8d45e4 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Fri, 17 May 2019 16:52:06 +0800
+Subject: [PATCH] containerd: Fix fd leak of shim log
+
+reason:Open shim v2 log with the flag `O_RDWR` will cause the `Read()` block
+forever even if the pipe has been closed on the shim side. Then the
+`io.Copy()` would never return and lead to a fd leak.
+Fix typo when closing shim v1 log which causes the `stdouLog` leak.
+Update `numPipes` function in test case to get the opened FIFO
+correctly.
+
+Cherry-pick from upstream cf6e00854
+Reference from https://github.com/containerd/containerd/pull/3266
+
+Change-Id: If83a4ca9b9ec0079ac0f0015d1f6768581571030
+Signed-off-by: Li Yuxuan <liyuxuan04@baidu.com>
+Signed-off-by: zhangyu235 <zhangyu235@huawei.com>
+---
+ container_linux_test.go          | 2 +-
+ runtime/v1/shim/client/client.go | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/container_linux_test.go b/container_linux_test.go
+index fa764d7..fdf6349 100644
+--- a/container_linux_test.go
++++ b/container_linux_test.go
+@@ -329,7 +329,7 @@ func TestShimDoesNotLeakPipes(t *testing.T) {
+ }
+ 
+ func numPipes(pid int) (int, error) {
+-	cmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -p %d | grep pipe", pid))
++	cmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -p %d | grep FIFO", pid))
+ 
+ 	var stdout bytes.Buffer
+ 	cmd.Stdout = &stdout
+diff --git a/runtime/v1/shim/client/client.go b/runtime/v1/shim/client/client.go
+index ef74030..a819be6 100644
+--- a/runtime/v1/shim/client/client.go
++++ b/runtime/v1/shim/client/client.go
+@@ -96,9 +96,9 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
+ 			cmd.Wait()
+ 			exitHandler()
+ 			if stdoutLog != nil {
+-				stderrLog.Close()
++				stdoutLog.Close()
+ 			}
+-			if stdoutLog != nil {
++			if stderrLog != nil {
+ 				stderrLog.Close()
+ 			}
+ 		}()
+-- 
+2.7.4.3
+
