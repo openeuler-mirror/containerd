@@ -1,0 +1,31 @@
+From e7827a737c42861afd6b41e2e7dc953c249278fc Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 11 Feb 2019 17:40:31 +0800
+Subject: [PATCH 16/27] create:  runc delete force before create
+
+reason: testCE_docker_hook_spec_ABN.051.sh
+kill -9 shim will generate residual runc files, cleanup runc files using
+runc delete before create.
+
+Change-Id: I3efa3c4d0989ba8d688bcb6f35ba543b6ab91b2d
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ vendor/github.com/containerd/go-runc/runc.go | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index 96262af..e688881 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -138,6 +138,8 @@ func (o *CreateOpts) args() (out []string, err error) {
+ 
+ // Create creates a new container and returns its pid if it was created successfully
+ func (r *Runc) Create(context context.Context, id, bundle string, opts *CreateOpts) error {
++	r.Delete(context, id, &DeleteOpts{Force: true})
++
+ 	args := []string{"create", "--bundle", bundle}
+ 	if opts != nil {
+ 		oargs, err := opts.args()
+-- 
+2.7.4.3
+

@@ -1,0 +1,50 @@
+From d4d3f8a239f4b4afd009d954453e585704ddb112 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 24 Jan 2019 11:55:10 +0800
+Subject: [PATCH 13/27] log:  support log init pid to start event log
+
+reason: DFX support start event with init pid
+
+Change-Id: I8ae9c7a9652f694680979965829682416aed4055
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ hack/containerd.spec     | 2 +-
+ runtime/v1/linux/task.go | 2 ++
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/hack/containerd.spec b/hack/containerd.spec
+index c7d358d..462d35e 100644
+--- a/hack/containerd.spec
++++ b/hack/containerd.spec
+@@ -3,7 +3,7 @@
+ Version:        1.2.0
+ 
+ Name:           containerd
+-Release:        2%{?dist}
++Release:        3%{?dist}
+ Summary:        An industry-standard container runtime
+ License:        ASL 2.0
+ URL:            https://containerd.io
+diff --git a/runtime/v1/linux/task.go b/runtime/v1/linux/task.go
+index 38da35c..1c650c4 100644
+--- a/runtime/v1/linux/task.go
++++ b/runtime/v1/linux/task.go
+@@ -36,6 +36,7 @@ import (
+ 	"github.com/containerd/typeurl"
+ 	"github.com/gogo/protobuf/types"
+ 	"github.com/pkg/errors"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // Task on a linux based system
+@@ -131,6 +132,7 @@ func (t *Task) Start(ctx context.Context) error {
+ 		t.cg = cg
+ 		t.mu.Unlock()
+ 	}
++	logrus.Infof("publish event %s for container %s with pid %d", runtime.TaskStartEventTopic, t.id, t.pid)
+ 	t.events.Publish(ctx, runtime.TaskStartEventTopic, &eventstypes.TaskStart{
+ 		ContainerID: t.id,
+ 		Pid:         uint32(t.pid),
+-- 
+2.7.4.3
+

@@ -1,0 +1,48 @@
+From a275b359b2e85d8f353eab12d538a94609171918 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Sat, 23 Feb 2019 18:32:00 +0800
+Subject: [PATCH 27/27] log:  make tester happy
+
+reason: make tester happy
++ check_docker_error /tmp/tmp_11955/log2 b3357887148bc59212d30dba46d3eea9490cfe94594fa00aa7706c7addb92d91
++ grep docker /tmp/tmp_11955/log2
++ grep error
++ grep b3357887148bc59212d30dba46d3eea9490cfe94594fa00aa7706c7addb92d91
++ grep -w 'container did not start before the specified timeout'
+
+Change-Id: Iddd40bd42212bf09f52c17f28119a6b5364f4de7
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ hack/containerd.spec      | 2 +-
+ runtime/v1/shim/reaper.go | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/hack/containerd.spec b/hack/containerd.spec
+index 869012a..05f68c7 100644
+--- a/hack/containerd.spec
++++ b/hack/containerd.spec
+@@ -3,7 +3,7 @@
+ Version:        1.2.0
+ 
+ Name:           containerd
+-Release:        6%{?dist}
++Release:        7%{?dist}
+ Summary:        An industry-standard container runtime
+ License:        ASL 2.0
+ URL:            https://containerd.io
+diff --git a/runtime/v1/shim/reaper.go b/runtime/v1/shim/reaper.go
+index a2b90fe..529a533 100644
+--- a/runtime/v1/shim/reaper.go
++++ b/runtime/v1/shim/reaper.go
+@@ -125,7 +125,7 @@ func (m *Monitor) WaitTimeout(c *exec.Cmd, ec chan runc.Exit, sec int64) (int, e
+ 		if SameProcess(c, c.Process.Pid) {
+ 			syscall.Kill(c.Process.Pid, syscall.SIGKILL)
+ 		}
+-		return 0, errors.Errorf("timeout %ds for cmd(pid= %d): %s, %s", sec, c.Process.Pid, c.Path, c.Args)
++		return 0, errors.Errorf("container did not start before the specified timeout %ds for cmd(pid=%d): %s, %s", sec, c.Process.Pid, c.Path, c.Args)
+ 	case status := <-sch:
+ 		return status, nil
+ 	case err := <-ech:
+-- 
+2.7.4.3
+

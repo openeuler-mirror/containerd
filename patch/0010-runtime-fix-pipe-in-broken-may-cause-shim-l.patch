@@ -1,0 +1,52 @@
+From d0e57aafce7c98b3c9b3004c862d5a15180df86c Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Wed, 23 Jan 2019 15:03:08 +0800
+Subject: [PATCH 10/27] runtime:  fix pipe in broken may cause shim
+ lock forever for runtime v1
+
+reason: fix pipe in broken may cause shim lock forever for runtime v1
+
+Cherry-pick from upstream e76a8879eb
+
+Change-Id: Ie603b36f92c4a6cc41777a9cd1e6a19b8584eaf1
+Signed-off-by: Lifubang <lifubang@acmcoder.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+---
+ runtime/v1/shim/service_linux.go | 8 +++++---
+ runtime/v2/runc/service_linux.go | 1 +
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/runtime/v1/shim/service_linux.go b/runtime/v1/shim/service_linux.go
+index 18ae650..307e20d 100644
+--- a/runtime/v1/shim/service_linux.go
++++ b/runtime/v1/shim/service_linux.go
+@@ -49,9 +49,11 @@ func (p *linuxPlatform) CopyConsole(ctx context.Context, console console.Console
+ 		cwg.Add(1)
+ 		go func() {
+ 			cwg.Done()
+-			p := bufPool.Get().(*[]byte)
+-			defer bufPool.Put(p)
+-			io.CopyBuffer(epollConsole, in, *p)
++			bp := bufPool.Get().(*[]byte)
++			defer bufPool.Put(bp)
++			io.CopyBuffer(epollConsole, in, *bp)
++			// we need to shutdown epollConsole when pipe broken
++			epollConsole.Shutdown(p.epoller.CloseConsole)
+ 		}()
+ 	}
+ 
+diff --git a/runtime/v2/runc/service_linux.go b/runtime/v2/runc/service_linux.go
+index 19d1fec..1161673 100644
+--- a/runtime/v2/runc/service_linux.go
++++ b/runtime/v2/runc/service_linux.go
+@@ -52,6 +52,7 @@ func (p *linuxPlatform) CopyConsole(ctx context.Context, console console.Console
+ 			bp := bufPool.Get().(*[]byte)
+ 			defer bufPool.Put(bp)
+ 			io.CopyBuffer(epollConsole, in, *bp)
++			// we need to shutdown epollConsole when pipe broken
+ 			epollConsole.Shutdown(p.epoller.CloseConsole)
+ 		}()
+ 	}
+-- 
+2.7.4.3
+

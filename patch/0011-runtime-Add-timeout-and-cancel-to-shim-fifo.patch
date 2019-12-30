@@ -1,0 +1,95 @@
+From 8eb1ab31006f3079d1bf95b4ab089e049a4f45f2 Mon Sep 17 00:00:00 2001
+From: lujingxiao <lujingxiao@huawei.com>
+Date: Wed, 23 Jan 2019 15:04:03 +0800
+Subject: [PATCH 11/27] runtime:  Add timeout and cancel to shim fifo
+ open
+
+reason: Add timeout and cancel to shim fifo open
+There is still a special case where the client side fails to open or
+load causes things to be slow and the shim can lock up when this
+happens.  This adds a timeout to the context for this case to abort fifo
+creation.
+
+Cherry-pick from upstream 18f57e20b0
+
+Signed-off-by: Michael Crosby <crosbymichael@gmail.com>
+(cherry picked from commit a2a4241979f615eb0a1084c7638c21f830f48ac5)
+Signed-off-by: Andrew Hsu <andrewhsu@docker.com>
+Signed-off-by: lujingxiao <lujingxiao@huawei.com>
+
+Change-Id: Ic7f285b149f97f4d6526b3f2c28b6ac6790332b0
+---
+ runtime/v1/linux/proc/exec.go | 5 +++++
+ runtime/v1/linux/proc/init.go | 5 +++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/runtime/v1/linux/proc/exec.go b/runtime/v1/linux/proc/exec.go
+index 96c425d..715a977 100644
+--- a/runtime/v1/linux/proc/exec.go
++++ b/runtime/v1/linux/proc/exec.go
+@@ -172,22 +172,27 @@ func (e *execProcess) start(ctx context.Context) (err error) {
+ 		e.stdin = sc
+ 	}
+ 	var copyWaitGroup sync.WaitGroup
++	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+ 	if socket != nil {
+ 		console, err := socket.ReceiveMaster()
+ 		if err != nil {
++			cancel()
+ 			return errors.Wrap(err, "failed to retrieve console master")
+ 		}
+ 		if e.console, err = e.parent.Platform.CopyConsole(ctx, console, e.stdio.Stdin, e.stdio.Stdout, e.stdio.Stderr, &e.wg, &copyWaitGroup); err != nil {
++			cancel()
+ 			return errors.Wrap(err, "failed to start console copy")
+ 		}
+ 	} else if !e.stdio.IsNull() {
+ 		if err := copyPipes(ctx, e.io, e.stdio.Stdin, e.stdio.Stdout, e.stdio.Stderr, &e.wg, &copyWaitGroup); err != nil {
++			cancel()
+ 			return errors.Wrap(err, "failed to start io pipe copy")
+ 		}
+ 	}
+ 	copyWaitGroup.Wait()
+ 	pid, err := runc.ReadPidFile(opts.PidFile)
+ 	if err != nil {
++		cancel()
+ 		return errors.Wrap(err, "failed to retrieve OCI runtime exec pid")
+ 	}
+ 	e.pid = pid
+diff --git a/runtime/v1/linux/proc/init.go b/runtime/v1/linux/proc/init.go
+index 5bf5f83..5b23671 100644
+--- a/runtime/v1/linux/proc/init.go
++++ b/runtime/v1/linux/proc/init.go
+@@ -168,18 +168,22 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) error {
+ 		p.closers = append(p.closers, sc)
+ 	}
+ 	var copyWaitGroup sync.WaitGroup
++	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+ 	if socket != nil {
+ 		console, err := socket.ReceiveMaster()
+ 		if err != nil {
++			cancel()
+ 			return errors.Wrap(err, "failed to retrieve console master")
+ 		}
+ 		console, err = p.Platform.CopyConsole(ctx, console, r.Stdin, r.Stdout, r.Stderr, &p.wg, &copyWaitGroup)
+ 		if err != nil {
++			cancel()
+ 			return errors.Wrap(err, "failed to start console copy")
+ 		}
+ 		p.console = console
+ 	} else if !hasNoIO(r) {
+ 		if err := copyPipes(ctx, p.io, r.Stdin, r.Stdout, r.Stderr, &p.wg, &copyWaitGroup); err != nil {
++			cancel()
+ 			return errors.Wrap(err, "failed to start io pipe copy")
+ 		}
+ 	}
+@@ -187,6 +191,7 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) error {
+ 	copyWaitGroup.Wait()
+ 	pid, err := runc.ReadPidFile(pidFile)
+ 	if err != nil {
++		cancel()
+ 		return errors.Wrap(err, "failed to retrieve OCI runtime container pid")
+ 	}
+ 	p.pid = pid
+-- 
+2.7.4.3
+

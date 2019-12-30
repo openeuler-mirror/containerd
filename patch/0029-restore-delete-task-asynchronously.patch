@@ -1,0 +1,35 @@
+From de14f9d00033a9596823e0ea953437f5f244cb74 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Sat, 23 Mar 2019 07:18:57 +0800
+Subject: [PATCH] restore:  delete task asynchronously
+
+reason: set delete task to asynchronous to avoid containerd be killed when delete is blocking.
+        testCE_docker_hook_spec_ABN.059.sh
+
+Change-Id: I5fae8e60987b9617a835ea07710ca3c842efab14
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ runtime/v1/linux/runtime.go | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index 2a45aaa..cca72fe 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -437,8 +437,11 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 			if !events.ExitPending(ns, t.id, uint32(pid)) {
+ 				events.ExitAddFile(ns, events.ExitFile(t.id, uint32(pid), uint32(events.ExitStatusDefault)), "cleanup dirty task")
+ 			}
+-			_, err := t.DeleteForce(ctx, uint32(pid))
+-			log.G(ctx).Warnf("delete force %s Pid=%d(exiting) error=%v", id, pid, err)
++			go func(){
++				log.G(ctx).Infof("delete force %s start, Pid=%d(exiting)", id, pid)
++				_, err := t.DeleteForce(ctx, uint32(pid))
++				log.G(ctx).Infof("delete force %s done, Pid=%d(exiting) error=%v", id, pid, err)
++			}()
+ 			continue
+ 		}
+ 		log.G(ctx).Infof("load-task %s Pid=%d done", id, pid)
+-- 
+1.8.3.1
+

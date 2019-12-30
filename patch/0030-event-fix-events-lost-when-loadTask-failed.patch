@@ -1,0 +1,45 @@
+From 375689497320d105aa2ed026710e20d9b0bd2a72 Mon Sep 17 00:00:00 2001
+From: jiangpengfei9 <jiangpengfei9@huawei.com>
+Date: Mon, 1 Apr 2019 13:08:50 -0400
+Subject: [PATCH] event: fix events lost when loadTask failed
+
+reason: If containerd-shim and containerd process is killed, container will exit,
+however containerd exit event which generates when containerd restart to reload
+tasks can not publish to dockerd, because at the time of loading tasks the connection
+between dockerd and containerd isn't established.
+
+So we add this unpublish exit event to file and resend this event after grpc connection
+is established.
+
+Signed-off-by: jiangpengfei9 <jiangpengfei9@huawei.com>
+---
+ runtime/v1/linux/runtime.go | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index cca72fe..af823b2 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -373,6 +373,9 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 				"id":        id,
+ 				"namespace": ns,
+ 			}).Error("connecting to shim")
++			if !events.ExitPending(ns, id, uint32(pid)) {
++				events.ExitAddFile(ns, events.ExitFile(id, uint32(pid), uint32(events.ExitStatusDefault)), "cleanup dirty task")
++			}
+ 			err := r.cleanupAfterDeadShim(ctx, bundle, ns, id, pid)
+ 			if err != nil {
+ 				log.G(ctx).WithError(err).WithField("bundle", bundle.path).
+@@ -388,6 +391,9 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 				"id":        id,
+ 				"namespace": ns,
+ 			}).Error("contacting to shim")
++			if !events.ExitPending(ns, id, uint32(pid)) {
++				events.ExitAddFile(ns, events.ExitFile(id, uint32(pid), uint32(events.ExitStatusDefault)), "cleanup dirty task")
++			}
+ 			err := r.cleanupAfterDeadShim(ctx, bundle, ns, id, pid)
+ 			if err != nil {
+ 				log.G(ctx).WithError(err).WithField("bundle", bundle.path).
+-- 
+1.8.3.1
+

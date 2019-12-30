@@ -1,0 +1,28 @@
+From e61f2c1664c91b5c8a8cb48641002c7c471c1d45 Mon Sep 17 00:00:00 2001
+From: zhangyu235 <zhangyu235@huawei.com>
+Date: Tue, 23 Apr 2019 12:24:50 +0800
+Subject: [PATCH] containerd: add buildid in Makefile
+
+Change-Id: I1c2ff035db2a02d125139b9ff170f91e81181541
+---
+ Makefile | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index 612330b..a400899 100644
+--- a/Makefile
++++ b/Makefile
+@@ -81,8 +81,8 @@ GO_TAGS=$(if $(BUILDTAGS),-tags "$(BUILDTAGS)",)
+ BEP_DIR=/tmp/containerd-build-bep
+ BEP_FLAGS=-tmpdir=/tmp/containerd-build-bep
+ 
+-GO_LDFLAGS=-ldflags '-s -w -extldflags=-zrelro -extldflags=-znow $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(EXTRA_LDFLAGS)'
+-SHIM_GO_LDFLAGS=-ldflags '-s -w $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -extldflags "-static"'
++GO_LDFLAGS=-ldflags '-s -w -buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(EXTRA_LDFLAGS)'
++SHIM_GO_LDFLAGS=-ldflags '-s -w -buildid=IdByIsula $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -extldflags "-static"'
+ 
+ #Replaces ":" (*nix), ";" (windows) with newline for easy parsing
+ GOPATHS=$(shell echo ${GOPATH} | tr ":" "\n" | tr ";" "\n")
+-- 
+2.7.4.3
+

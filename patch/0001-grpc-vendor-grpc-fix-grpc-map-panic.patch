@@ -1,0 +1,63 @@
+From fe090d706a522392e30dd4c44447f915ec99c1a0 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Sat, 22 Dec 2018 15:16:53 +0800
+Subject: [PATCH 01/27] vendor: grpc: fix grpc map panic
+
+reason: Fix grpc map panic
+
+cherry-pick from containerd-0.2.8
+
+a8cdda827867cec97568318368a7aa40097d0487
+
+Fix grpc map panic
+
+Description:
+ In golang, if we read/write map in different goroutine, it may panic.
+ We need to add lock to protect the map data when read/write the map.
+
+Now the grpc map is only protected by a mutex while register, not
+protected in reading process(handleStream function).
+
+This MR will use a RWMutex to protect this map.
+
+Change-Id: I786bd99234461c40fcb57621fd7c1fb4faa0c208
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ vendor/google.golang.org/grpc/server.go | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/vendor/google.golang.org/grpc/server.go b/vendor/google.golang.org/grpc/server.go
+index 4969331..77f7840 100644
+--- a/vendor/google.golang.org/grpc/server.go
++++ b/vendor/google.golang.org/grpc/server.go
+@@ -90,7 +90,7 @@ type service struct {
+ type Server struct {
+ 	opts options
+ 
+-	mu     sync.Mutex // guards following
++	mu     sync.RWMutex // guards following
+ 	lis    map[net.Listener]bool
+ 	conns  map[io.Closer]bool
+ 	serve  bool
+@@ -438,6 +438,8 @@ type ServiceInfo struct {
+ // Service names include the package names, in the form of <package>.<service>.
+ func (s *Server) GetServiceInfo() map[string]ServiceInfo {
+ 	ret := make(map[string]ServiceInfo)
++	s.mu.RLock()
++	defer s.mu.RUnlock()
+ 	for n, srv := range s.m {
+ 		methods := make([]MethodInfo, 0, len(srv.md)+len(srv.sd))
+ 		for m := range srv.md {
+@@ -1221,7 +1223,9 @@ func (s *Server) handleStream(t transport.ServerTransport, stream *transport.Str
+ 	}
+ 	service := sm[:pos]
+ 	method := sm[pos+1:]
++	s.mu.RLock()
+ 	srv, ok := s.m[service]
++	s.mu.RUnlock()
+ 	if !ok {
+ 		if unknownDesc := s.opts.unknownStreamDesc; unknownDesc != nil {
+ 			s.processStreamingRPC(t, stream, nil, unknownDesc, trInfo)
+-- 
+2.7.4.3
+

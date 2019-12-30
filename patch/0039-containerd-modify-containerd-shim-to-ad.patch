@@ -1,0 +1,51 @@
+From 5eef82c3c41eabb532cd7520acf7e8587b76d8b5 Mon Sep 17 00:00:00 2001
+From: jiangpengfei <jiangpengfei9@huawei.com>
+Date: Wed, 10 Jul 2019 15:07:46 -0400
+Subject: [PATCH] containerd: modify containerd-shim to adapt runv
+ runtime
+
+reason: containerd-shim pass a too long runtime root path to runv runtime, which cause hyperstartgrpc.sock
+file absolute path exceed the max length of Unix Socket(max length is 108).
+
+Signed-off-by: jiangpengfei <jiangpengfei9@huawei.com>
+---
+ runtime/v1/linux/proc/init.go | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/v1/linux/proc/init.go b/runtime/v1/linux/proc/init.go
+index 5b23671..d464147 100644
+--- a/runtime/v1/linux/proc/init.go
++++ b/runtime/v1/linux/proc/init.go
+@@ -44,6 +44,9 @@ import (
+ // InitPidFile name of the file that contains the init pid
+ const InitPidFile = "init.pid"
+ 
++// Default runv runtime root dir
++const defaultRunvRoot = "/run/runv"
++
+ // Init represents an initial process for a container
+ type Init struct {
+ 	wg sync.WaitGroup
+@@ -83,12 +86,18 @@ func NewRunc(root, path, namespace, runtime, criu string, systemd bool) *runc.Ru
+ 	if root == "" {
+ 		root = RuncRoot
+ 	}
++
++	rootPath := filepath.Join(root, namespace)
++	if strings.Contains(runtime, "runv") {
++		rootPath = defaultRunvRoot
++	}
++
+ 	return &runc.Runc{
+ 		Command:       runtime,
+ 		Log:           filepath.Join(path, "log.json"),
+ 		LogFormat:     runc.JSON,
+ 		PdeathSignal:  syscall.SIGKILL,
+-		Root:          filepath.Join(root, namespace),
++		Root:          rootPath,
+ 		Criu:          criu,
+ 		SystemdCgroup: systemd,
+ 	}
+-- 
+1.8.3.1
+

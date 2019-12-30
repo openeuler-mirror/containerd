@@ -1,0 +1,45 @@
+From da6ea77f9f47c740fe85e7e4d34889e131135b81 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 15 Apr 2019 23:44:55 +0800
+Subject: [PATCH] containerd:  enable bep ldflags
+
+Change-Id: I820b100aa1420fc399878a905de14fb6a25ca1a4
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ Makefile | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index 921b2d50..612330b4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -77,9 +77,12 @@ MANPAGES=ctr.1 containerd.1 containerd-config.1 containerd-config.toml.5
+ # Build tags seccomp and apparmor are needed by CRI plugin.
+ BUILDTAGS ?= seccomp apparmor
+ GO_TAGS=$(if $(BUILDTAGS),-tags "$(BUILDTAGS)",)
+-GO_LDFLAGS=-ldflags '-s -w -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(EXTRA_LDFLAGS)' \
+-	-ldflags=-extldflags=-zrelro -ldflags=-extldflags=-znow
+-SHIM_GO_LDFLAGS=-ldflags '-s -w -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -extldflags "-static"'
++
++BEP_DIR=/tmp/containerd-build-bep
++BEP_FLAGS=-tmpdir=/tmp/containerd-build-bep
++
++GO_LDFLAGS=-ldflags '-s -w -extldflags=-zrelro -extldflags=-znow $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(EXTRA_LDFLAGS)'
++SHIM_GO_LDFLAGS=-ldflags '-s -w $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -extldflags "-static"'
+ 
+ #Replaces ":" (*nix), ";" (windows) with newline for easy parsing
+ GOPATHS=$(shell echo ${GOPATH} | tr ":" "\n" | tr ";" "\n")
+@@ -166,8 +169,9 @@ FORCE:
+ 
+ # Build a binary from a cmd.
+ bin/%: cmd/% FORCE
++	mkdir -p $(BEP_DIR)
+ 	@echo "$(WHALE) $@${BINARY_SUFFIX}"
+-	@go build ${GO_GCFLAGS} ${GO_BUILD_FLAGS} -o $@${BINARY_SUFFIX} ${GO_LDFLAGS} ${GO_TAGS}  ./$<
++	go build ${GO_GCFLAGS} ${GO_BUILD_FLAGS} -o $@${BINARY_SUFFIX} ${GO_LDFLAGS} ${GO_TAGS}  ./$<
+ 
+ bin/containerd-shim: cmd/containerd-shim FORCE # set !cgo and omit pie for a static shim build: https://github.com/golang/go/issues/17789#issuecomment-258542220
+ 	@echo "$(WHALE) bin/containerd-shim"
+-- 
+2.17.1
+
