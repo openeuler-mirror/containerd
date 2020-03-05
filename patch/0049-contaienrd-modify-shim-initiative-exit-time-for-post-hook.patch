@@ -1,0 +1,84 @@
+From d2e10b3f23adf3338ee451c926167d18e5ac02e1 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Thu, 21 Nov 2019 08:23:35 -0500
+Subject: [PATCH] contaienrd: modify shim initiative exit time for post hook
+
+reason: Modify shim initiative exit time for post hook. In consideration
+of each post hook has a execution time with timeout(default 120s), we
+should ensure enough time to call all post hook.
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ runtime/v1/shim/service.go | 29 ++++++++++++++++++++++-------
+ 1 file changed, 22 insertions(+), 7 deletions(-)
+
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index 9721660..cfba225 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -537,7 +537,7 @@ func (s *Service) checkProcesses(e runc.Exit) {
+ 	s.mu.Lock()
+ 	defer s.mu.Unlock()
+ 
+-	shouldKillAll, err := shouldKillAllOnExit(s.bundle)
++	shouldKillAll, bundleSpec, err := shouldKillAllOnExit(s.bundle)
+ 	if err != nil {
+ 		log.G(s.context).WithError(err).Error("failed to check shouldKillAll")
+ 	}
+@@ -549,8 +549,23 @@ func (s *Service) checkProcesses(e runc.Exit) {
+ 				events.ExitAddFile(ns, events.ExitFile(s.id, uint32(e.Pid), uint32(e.Status)), "init exited")
+ 				events.InitExitWrite(ip.Bundle, e.Pid)
+ 				go func() {
+-					time.Sleep(120 * time.Second)
+-					os.Exit(0)
++					t := 30
++					defer func() {
++						time.Sleep(time.Duration(t) * time.Second)
++						os.Exit(0)
++					}()
++					if bundleSpec.Hooks == nil {
++						return
++					}
++					postStopHooks := bundleSpec.Hooks.Poststop
++					for _, postStopHook := range postStopHooks {
++						hookTimeout := postStopHook.Timeout
++						if hookTimeout == nil {
++							t += 120
++						} else {
++							t += *hookTimeout
++						}
++					}
+ 				}()
+ 			}
+ 			if shouldKillAll {
+@@ -575,23 +590,23 @@ func (s *Service) checkProcesses(e runc.Exit) {
+ 	}
+ }
+ 
+-func shouldKillAllOnExit(bundlePath string) (bool, error) {
++func shouldKillAllOnExit(bundlePath string) (bool, specs.Spec, error) {
+ 	var bundleSpec specs.Spec
+ 	bundleConfigContents, err := ioutil.ReadFile(filepath.Join(bundlePath, "config.json"))
+ 	if err != nil {
+-		return false, err
++		return false, specs.Spec{}, err
+ 	}
+ 	json.Unmarshal(bundleConfigContents, &bundleSpec)
+ 
+ 	if bundleSpec.Linux != nil {
+ 		for _, ns := range bundleSpec.Linux.Namespaces {
+ 			if ns.Type == specs.PIDNamespace && ns.Path == "" {
+-				return false, nil
++				return false, bundleSpec, nil
+ 			}
+ 		}
+ 	}
+ 
+-	return true, nil
++	return true, bundleSpec, nil
+ }
+ 
+ func (s *Service) getContainerPids(ctx context.Context, id string) ([]uint32, error) {
+-- 
+2.20.1
+

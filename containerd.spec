@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        100
+Release:        101
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
