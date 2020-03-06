@@ -1,0 +1,51 @@
+From 7db93cf813023f2a5ac209617aaae5c3f5c202d5 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Tue, 3 Mar 2020 09:01:22 +0800
+Subject: [PATCH] containerd:save dumpstack to file
+
+Change-Id: I54a41a13b4523de279337a9ff208347859c0fb4d
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ cmd/containerd/command/main_unix.go | 5 +++++
+ runtime/v1/linux/runtime.go         | 1 +
+ 2 files changed, 6 insertions(+)
+
+diff --git a/cmd/containerd/command/main_unix.go b/cmd/containerd/command/main_unix.go
+index 12c1426..2f9398f 100644
+--- a/cmd/containerd/command/main_unix.go
++++ b/cmd/containerd/command/main_unix.go
+@@ -20,8 +20,12 @@ package command
+ 
+ import (
+ 	"context"
++	"fmt"
++	"io/ioutil"
+ 	"os"
+ 	"runtime"
++	"strings"
++	"time"
+ 
+ 	"github.com/containerd/containerd/log"
+ 	"github.com/containerd/containerd/services/server"
+@@ -79,5 +83,6 @@ func dumpStacks() {
+ 		bufferLen *= 2
+ 	}
+ 	buf = buf[:stackSize]
++	logrus.Devour(ioutil.WriteFile(fmt.Sprintf("/var/run/docker/containerd/containerd-stacks-%s.log", strings.Replace(time.Now().Format(time.RFC3339), ":", "", -1)), buf, 0600))
+ 	logrus.Infof("=== BEGIN goroutine stack dump ===\n%s\n=== END goroutine stack dump ===", buf)
+ }
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index 47a0cb6..5be785d 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -481,6 +481,7 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ }
+ 
+ func (r *Runtime) cleanupAfterDeadShim(ctx context.Context, bundle *bundle, ns, id string, pid int) error {
++	logrus.Infof("cleanup dead shim(legacy=%t): %s %d", legacy.IsLegacy(id), id, pid)
+ 	ctx = namespaces.WithNamespace(ctx, ns)
+ 	if err := r.terminate(ctx, bundle, ns, id); err != nil {
+ 		log.G(ctx).WithError(err).Warn("failed to terminate task")
+-- 
+1.8.3.1
+

@@ -1,0 +1,630 @@
+From 4656fbac6e4a23cf4e2fcb332777fb17895e67ca Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Wed, 14 Aug 2019 10:51:19 +0800
+Subject: [PATCH] containerd:  hot-upgrade support from
+ containerd-0.2.8
+
+This patch support hot-upgrade from containerd-0.2.8. When restore
+tasks, it will find containers started by containerd-0.2.8, then start
+fake task create, the fake create will run a new shim process, the shim
+process will manage the container created by runc.
+
+After restore legacy created tasks, each task will has 2 shim
+process. So it support down-grade to docker-1.11.2 with container still
+running.
+
+Change-Id: I94cd48cbf8ceb408dbc8849fe6916e0ec3d889b0
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ legacy/legacy.go              | 145 ++++++++++++++++++++
+ runtime/v1/linux/leruntime.go | 243 ++++++++++++++++++++++++++++++++++
+ runtime/v1/linux/proc/init.go |  27 +++-
+ runtime/v1/linux/proc/io.go   |  11 +-
+ runtime/v1/linux/runtime.go   |   5 +
+ runtime/v1/shim/service.go    |  10 +-
+ services/containers/local.go  |  19 ++-
+ 7 files changed, 452 insertions(+), 8 deletions(-)
+ create mode 100644 legacy/legacy.go
+ create mode 100644 runtime/v1/linux/leruntime.go
+
+diff --git a/legacy/legacy.go b/legacy/legacy.go
+new file mode 100644
+index 00000000..fde9f709
+--- /dev/null
++++ b/legacy/legacy.go
+@@ -0,0 +1,145 @@
++/*
++Copyright (c) Huawei Technologies Co., Ltd. 2019-2019. All rights reserved.
++Description: support containerd hot-upgrade from 0.2.8
++Author: jingrui jingrui@huawei.com
++Create: 2019-09-20
++*/
++
++package legacy
++
++import (
++	"encoding/json"
++	"fmt"
++	"io"
++	"io/ioutil"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++
++	"github.com/sirupsen/logrus"
++	"github.com/opencontainers/runtime-spec/specs-go"
++)
++
++const (
++	LegacyFile = "legacy"
++	Config120  = "/var/run/docker/containerd/daemon/io.containerd.runtime.v1.linux/moby/"
++	Stdio120   = "/var/run/docker/containerd/"
++	Config028  = "/var/run/docker/libcontainerd/"
++	State028   = "/var/run/docker/libcontainerd/containerd/"
++	Runtime    = "io.containerd.runtime.v1"
++)
++
++// IsLegacy is used to check if im legacy.
++func IsLegacy(id string) bool {
++	lf := Config120 + id + "/" + LegacyFile
++	if _, err := os.Stat(lf); err == nil {
++		caller := "??"
++		if pc, file, line, ok := runtime.Caller(1); ok {
++			caller = fmt.Sprintf("%s:%d:%s()", file, line, runtime.FuncForPC(pc).Name())
++		}
++		logrus.Infof("shim pretend to be 0.2.8 in %s", caller)
++		return true
++	}
++	return false
++}
++
++// IsRunning is used to detect whether legacy container is running.
++func IsRunning(id string) bool {
++	path := State028 + id + "/init/pid"
++	bpid, err := ioutil.ReadFile(path)
++	if err != nil {
++		return false
++	}
++
++	path = State028 + id + "/init/starttime"
++	btime, err := ioutil.ReadFile(path)
++	if err != nil {
++		return false
++	}
++
++	path = fmt.Sprintf("/proc/%s/stat", string(bpid))
++	bstat, err := ioutil.ReadFile(path)
++	if err != nil {
++		return false
++	}
++
++	if !strings.Contains(string(bstat), string(btime)) {
++		return false
++	}
++
++	return true
++}
++
++// CopyFile used to copy a file.
++func CopyFile(dstName, srcName string) (written int64, err error) {
++	src, err := os.Open(srcName)
++	if err != nil {
++		return
++	}
++	defer src.Close()
++
++	dst, err := os.OpenFile(dstName, os.O_WRONLY|os.O_CREATE, 0644)
++	if err != nil {
++		return
++	}
++	defer dst.Close()
++
++	return io.Copy(dst, src)
++}
++
++// InitBundle will copy files from 0.2.8 dirs to 1.2.0 dirs.
++func InitBundle(root string, id string) error {
++	err := os.MkdirAll(Config120+id, 0711)
++	if err != nil {
++		return err
++	}
++	err = os.MkdirAll(Stdio120+id, 0711)
++	if err != nil {
++		return err
++	}
++	err = os.MkdirAll(filepath.Join(root, "moby", id), 0711)
++	if err != nil {
++		return err
++	}
++
++	err = ioutil.WriteFile(Config120+id+"/"+LegacyFile, []byte{}, 0644)
++	if err != nil {
++		return err
++	}
++	CopyFile(Config120+id+"/config.json", Config028+id+"/config.json")
++	CopyFile(Config120+id+"/init.pid", State028+id+"/init/pid")
++	return nil
++}
++
++// DeleteBundle will delete unused legacy bundle files.
++func DeleteBundle(id string) error {
++	err1 := os.RemoveAll(Config120 + id)
++	err2 := os.RemoveAll(Stdio120 + id)
++	if err1 != nil {
++		return err1
++	}
++	if err2 != nil {
++		return err2
++	}
++
++	return nil
++}
++
++// LoadSpec load config.json into spec.
++func LoadSpec(id string) (*specs.Spec, error) {
++	f, err := os.OpenFile(Config120+id+"/config.json", os.O_RDONLY, 0400)
++	if err != nil {
++		return nil, err
++	}
++	defer f.Close()
++
++	spec := specs.Spec{}
++	dec := json.NewDecoder(f)
++	err = dec.Decode(&spec)
++	if err != nil {
++		return nil, err
++	}
++
++	return &spec, nil
++}
+diff --git a/runtime/v1/linux/leruntime.go b/runtime/v1/linux/leruntime.go
+new file mode 100644
+index 00000000..5b887935
+--- /dev/null
++++ b/runtime/v1/linux/leruntime.go
+@@ -0,0 +1,243 @@
++/*
++Copyright (c) Huawei Technologies Co., Ltd. 2019-2019. All rights reserved.
++Description: support containerd hot-upgrade from 0.2.8
++Author: jingrui jingrui@huawei.com
++Create: 2019-09-20
++*/
++
++package linux
++
++import (
++	"context"
++	"fmt"
++	"io/ioutil"
++	goruntime "runtime"
++
++	"github.com/containerd/containerd/api/types"
++	"github.com/containerd/containerd/containers"
++	"github.com/containerd/containerd/errdefs"
++	"github.com/containerd/containerd/legacy"
++	"github.com/containerd/containerd/log"
++	"github.com/containerd/containerd/namespaces"
++	"github.com/containerd/containerd/runtime"
++	"github.com/containerd/containerd/runtime/linux/runctypes"
++	shim "github.com/containerd/containerd/runtime/v1/shim/v1"
++	scontainers "github.com/containerd/containerd/services/containers"
++	"github.com/containerd/typeurl"
++	"github.com/sirupsen/logrus"
++)
++
++func taskIsExist(tasks []*Task, id string) bool {
++	for _, t := range tasks {
++		if t.id == id {
++			return true
++		}
++	}
++	return false
++}
++
++func loadCreateOpts(id string) runtime.CreateOpts {
++	opts := runtime.CreateOpts{
++		IO: runtime.IO{
++			Stdin:  fmt.Sprintf("/var/run/docker/libcontainerd/%s/init-stdin", id),
++			Stdout: fmt.Sprintf("/var/run/docker/libcontainerd/%s/init-stdout", id),
++		},
++	}
++
++	return opts
++}
++
++func (r *Runtime) legacyCreateMeta(ctx context.Context, id string) {
++	spec, err := legacy.LoadSpec(id)
++	if err != nil {
++		logrus.Errorf("load spec for %s failed %v", id, err)
++		return
++	}
++
++	s, err := typeurl.MarshalAny(spec)
++	if err != nil {
++		logrus.Errorf("marshal-any for %s failed %v", id, err)
++		return
++	}
++
++	c := containers.Container{
++		ID: id,
++		Runtime: containers.RuntimeInfo{
++			Name: fmt.Sprintf("%s.%s", legacy.Runtime, goruntime.GOOS),
++		},
++		Spec: s,
++	}
++
++	err = scontainers.CreateMeta(ctx, c)
++	if err != nil {
++		logrus.Infof("create meta for %s failed %v", c.ID, err)
++	}
++}
++
++func (r *Runtime) legacyCreate(ctx context.Context, id string, opts runtime.CreateOpts) (*Task, error) {
++	namespace, err := namespaces.NamespaceRequired(ctx)
++	if err != nil {
++		return nil, err
++	}
++	if namespace != "moby" {
++		return nil, fmt.Errorf("legacy not support ns=%s", namespace)
++	}
++
++	ropts := &runctypes.RuncOptions{}
++	bundle := loadBundle(id,
++		legacy.Config120+id,
++		legacy.Config120+id)
++
++	defer func() {
++		if err != nil {
++			errd := bundle.Delete()
++			log.G(ctx).WithError(err).Errorf("revert: delete bundle error=%v", errd)
++		}
++	}()
++
++	shimopt := ShimLocal(r.config, r.events)
++
++	var cgroup string
++	if opts.TaskOptions != nil {
++		v, err := typeurl.UnmarshalAny(opts.TaskOptions)
++		if err != nil {
++			return nil, err
++		}
++		cgroup = v.(*runctypes.CreateOptions).ShimCgroup
++	}
++	exitHandler := func() {
++		log.G(ctx).WithField("id", id).Info("shim reaped")
++		t, err := r.tasks.Get(ctx, id)
++		if err != nil {
++			// Task was never started or was already successfully deleted
++			return
++		}
++		lc := t.(*Task)
++
++		log.G(ctx).WithFields(logrus.Fields{
++			"id":        id,
++			"namespace": namespace,
++		}).Warn("cleaning up after killed shim")
++		if err = r.cleanupAfterDeadShim(context.Background(), bundle, namespace, id, lc.pid); err != nil {
++			log.G(ctx).WithError(err).WithFields(logrus.Fields{
++				"id":        id,
++				"namespace": namespace,
++			}).Warn("failed to clean up after killed shim")
++		}
++	}
++	shimopt = ShimRemote(r.config, r.address, cgroup, exitHandler)
++
++	s, err := bundle.NewShimClient(ctx, namespace, shimopt, ropts)
++	if err != nil {
++		return nil, err
++	}
++
++	defer func() {
++		if err != nil {
++			kerr := s.KillShim(ctx)
++			log.G(ctx).WithError(err).Errorf("revert: kill shim error=%v", kerr)
++		}
++	}()
++
++	rt := r.config.Runtime
++	if ropts != nil && ropts.Runtime != "" {
++		rt = ropts.Runtime
++	}
++	sopts := &shim.CreateTaskRequest{
++		ID:         id,
++		Bundle:     bundle.path,
++		Runtime:    rt,
++		Stdin:      opts.IO.Stdin,
++		Stdout:     opts.IO.Stdout,
++		Stderr:     opts.IO.Stderr,
++		Terminal:   opts.IO.Terminal,
++		Checkpoint: opts.Checkpoint,
++		Options:    opts.TaskOptions,
++	}
++	for _, m := range opts.Rootfs {
++		sopts.Rootfs = append(sopts.Rootfs, &types.Mount{
++			Type:    m.Type,
++			Source:  m.Source,
++			Options: m.Options,
++		})
++	}
++	cr, err := s.Create(ctx, sopts)
++	if err != nil {
++		return nil, errdefs.FromGRPC(err)
++	}
++	t, err := newTask(id, namespace, int(cr.Pid), s, r.events, r.tasks, bundle)
++	if err != nil {
++		return nil, err
++	}
++
++	// dont add task to tasklist, restoreTasks() will add it later.
++
++	return t, nil
++}
++
++func (r *Runtime) loadLegacyTask(id string) (*Task, error) {
++	logrus.Infof("load-letask id=%s", id)
++	err := legacy.InitBundle(r.root, id)
++	if err != nil {
++		logrus.Errorf("letask %s init bundle failed %s", id, err)
++		return nil, err
++	}
++
++	defer func() {
++		if err != nil {
++			err1 := legacy.DeleteBundle(id)
++			logrus.Errorf("letask %s failed %v, drop bundle error=%s", id, err, err1)
++		}
++	}()
++
++	ctx := namespaces.WithNamespace(context.Background(), "moby")
++	r.legacyCreateMeta(ctx, id)
++	task, err := r.legacyCreate(ctx, id, loadCreateOpts(id))
++	if err != nil {
++		logrus.Errorf("letask %s create failed %v", id, err)
++		return nil, err
++	}
++
++	return task, nil
++}
++
++func (r *Runtime) loadLegacyTasks(tasks []*Task, ctx context.Context, ns string) ([]*Task, error) {
++	var o []*Task
++
++	if ns != "moby" {
++		logrus.Infof("loadLegacyTasks ignore ns=%s", ns)
++		return o, nil
++	}
++
++	dir, err := ioutil.ReadDir(legacy.State028)
++	if err != nil {
++		logrus.Infof("loadLegacyTasks skipped, no legacy residual")
++		return o, nil
++	}
++
++	for _, path := range dir {
++		if !path.IsDir() {
++			continue
++		}
++
++		id := path.Name()
++		if taskIsExist(tasks, id) {
++			logrus.Infof("letask %s already loaded", id)
++			continue
++		}
++		if !legacy.IsRunning(id) {
++			logrus.Infof("letask %s not running", id)
++			continue
++		}
++
++		task, err := r.loadLegacyTask(id)
++		if err != nil {
++			logrus.Errorf("letask %s load failed %s", err)
++			continue
++		}
++
++		o = append(o, task)
++		logrus.Infof("letask id=%s load ok", id)
++	}
++	return o, nil
++}
+diff --git a/runtime/v1/linux/proc/init.go b/runtime/v1/linux/proc/init.go
+index 44d3f58b..ace98621 100644
+--- a/runtime/v1/linux/proc/init.go
++++ b/runtime/v1/linux/proc/init.go
+@@ -31,6 +31,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/containerd/console"
++	"github.com/containerd/containerd/legacy"
+ 	"github.com/containerd/containerd/log"
+ 	"github.com/containerd/containerd/mount"
+ 	"github.com/containerd/containerd/runtime/proc"
+@@ -39,6 +40,7 @@ import (
+ 	google_protobuf "github.com/gogo/protobuf/types"
+ 	specs "github.com/opencontainers/runtime-spec/specs-go"
+ 	"github.com/pkg/errors"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // InitPidFile name of the file that contains the init pid
+@@ -113,6 +115,19 @@ func New(id string, runtime *runc.Runc, stdio proc.Stdio) *Init {
+ 		waitBlock: make(chan struct{}),
+ 	}
+ 	p.initState = &createdState{p: p}
++	// legacy container is exist, set it running state directly.
++	if legacy.IsLegacy(id) {
++		p.initState = &runningState{p: p}
++		go func(id string) {
++			for {
++				time.Sleep(3 * time.Second)
++				if !legacy.IsRunning(id) {
++					logrus.Infof("legacy container %s exited", id)
++					os.Exit(0)
++				}
++			}
++		}(id)
++	}
+ 	return p
+ }
+ 
+@@ -122,6 +137,17 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) error {
+ 		err    error
+ 		socket *runc.Socket
+ 	)
++	pidFile := filepath.Join(p.Bundle, InitPidFile)
++
++	if legacy.IsLegacy(r.ID) {
++		pid, err := runc.ReadPidFile(pidFile)
++		if err != nil {
++			return errors.Wrap(err, "failed to retrieve OCI runtime container pid")
++		}
++		p.pid = pid
++		return nil
++	}
++
+ 	if r.Terminal {
+ 		if socket, err = runc.NewTempConsoleSocket(); err != nil {
+ 			return errors.Wrap(err, "failed to create OCI runtime console socket")
+@@ -136,7 +162,6 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) error {
+ 			return errors.Wrap(err, "failed to create OCI runtime io pipes")
+ 		}
+ 	}
+-	pidFile := filepath.Join(p.Bundle, InitPidFile)
+ 	if r.Checkpoint != "" {
+ 		opts := &runc.RestoreOpts{
+ 			CheckpointOpts: runc.CheckpointOpts{
+diff --git a/runtime/v1/linux/proc/io.go b/runtime/v1/linux/proc/io.go
+index 71f6ee1b..36066270 100644
+--- a/runtime/v1/linux/proc/io.go
++++ b/runtime/v1/linux/proc/io.go
+@@ -79,6 +79,9 @@ func copyPipes(ctx context.Context, rio runc.IO, stdin, stdout, stderr string, w
+ 			},
+ 		},
+ 	} {
++		if i.name == "" {
++			continue
++		}
+ 		ok, err := isFifo(i.name)
+ 		if err != nil {
+ 			return err
+@@ -89,10 +92,10 @@ func copyPipes(ctx context.Context, rio runc.IO, stdin, stdout, stderr string, w
+ 		)
+ 		if ok {
+ 			if fw, err = fifo.OpenFifo(ctx, i.name, syscall.O_WRONLY, 0); err != nil {
+-				return fmt.Errorf("containerd-shim: opening %s failed: %s", i.name, err)
++				return fmt.Errorf("containerd-shim syscall.O_WRONLY: opening %s failed: %s", i.name, err)
+ 			}
+ 			if fr, err = fifo.OpenFifo(ctx, i.name, syscall.O_RDONLY, 0); err != nil {
+-				return fmt.Errorf("containerd-shim: opening %s failed: %s", i.name, err)
++				return fmt.Errorf("containerd-shim syscall.O_RDONLY: opening %s failed: %s", i.name, err)
+ 			}
+ 		} else {
+ 			if sameFile != nil {
+@@ -100,7 +103,7 @@ func copyPipes(ctx context.Context, rio runc.IO, stdin, stdout, stderr string, w
+ 				continue
+ 			}
+ 			if fw, err = os.OpenFile(i.name, syscall.O_WRONLY|syscall.O_APPEND, 0); err != nil {
+-				return fmt.Errorf("containerd-shim: opening %s failed: %s", i.name, err)
++				return fmt.Errorf("containerd-shim syscall.O_WRONLY|syscall.O_APPEND: opening %s failed: %s", i.name, err)
+ 			}
+ 			if stdout == stderr {
+ 				sameFile = fw
+@@ -113,7 +116,7 @@ func copyPipes(ctx context.Context, rio runc.IO, stdin, stdout, stderr string, w
+ 	}
+ 	f, err := fifo.OpenFifo(ctx, stdin, syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
+ 	if err != nil {
+-		return fmt.Errorf("containerd-shim: opening %s failed: %s", stdin, err)
++		return fmt.Errorf("containerd-shim syscall.O_RDONLY|syscall.O_NONBLOCK: opening %s failed: %s", stdin, err)
+ 	}
+ 	cwg.Add(1)
+ 	go func() {
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index f8e30742..1b763fbc 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -300,6 +300,11 @@ func (r *Runtime) restoreTasks(ctx context.Context) ([]*Task, error) {
+ 		}
+ 		o = append(o, tasks...)
+ 	}
++	lo, err := r.loadLegacyTasks(o, ctx, "moby")
++	if err != nil {
++		logrus.Errorf("load legacy with error %v", err)
++	}
++	o = append(o, lo...)
+ 	return o, nil
+ }
+ 
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index ac545ea4..6411fdd9 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -34,6 +34,7 @@ import (
+ 	"github.com/containerd/containerd/api/types/task"
+ 	"github.com/containerd/containerd/errdefs"
+ 	"github.com/containerd/containerd/events"
++	"github.com/containerd/containerd/legacy"
+ 	"github.com/containerd/containerd/log"
+ 	"github.com/containerd/containerd/mount"
+ 	"github.com/containerd/containerd/namespaces"
+@@ -381,7 +382,9 @@ func (s *Service) Kill(ctx context.Context, r *shimapi.KillRequest) (*ptypes.Emp
+ 		if s.id != p.ID() || r.Signal != uint32(syscall.SIGKILL) {
+ 			return
+ 		}
+-
++		if legacy.IsLegacy(s.id) {
++			return
++		}
+ 		for i := 1; i < 5; i++ {
+ 			time.Sleep(10 * time.Second)
+ 			err := p.Kill(ctx, r.Signal, r.All)
+@@ -676,6 +679,11 @@ func newInit(ctx context.Context, path, workDir, runtimeRoot, namespace, criu st
+ 
+ 	rootfs := filepath.Join(path, "rootfs")
+ 	runtime := proc.NewRunc(runtimeRoot, path, namespace, r.Runtime, criu, systemdCgroup)
++	// legacy container using /run/runc as runc root.
++	if legacy.IsLegacy(r.ID) {
++		runtime.Root = "/run/runc"
++	}
++
+ 	p := proc.New(r.ID, runtime, rproc.Stdio{
+ 		Stdin:    r.Stdin,
+ 		Stdout:   r.Stdout,
+diff --git a/services/containers/local.go b/services/containers/local.go
+index 95a09872..5934d5ad 100644
+--- a/services/containers/local.go
++++ b/services/containers/local.go
+@@ -48,10 +48,11 @@ func init() {
+ 			if err != nil {
+ 				return nil, err
+ 			}
+-			return &local{
++			helperLocal = local{
+ 				db:        m.(*metadata.DB),
+ 				publisher: ic.Events,
+-			}, nil
++			}
++			return &helperLocal, nil
+ 		},
+ 	})
+ }
+@@ -243,3 +244,17 @@ func (s *localStream) SendMsg(m interface{}) error {
+ func (s *localStream) RecvMsg(m interface{}) error {
+ 	return nil
+ }
++
++var helperLocal local // used for create meta only.
++// CreateMeta used only by legacy module to create meta.
++func CreateMeta(ctx context.Context, c containers.Container) error {
++	l := &helperLocal
++	err := l.withStoreUpdate(ctx, func(ctx context.Context, store containers.Store) error {
++		_, err := store.Create(ctx, c)
++		if err != nil {
++			return err
++		}
++		return nil
++	})
++	return err
++}
+-- 
+2.17.1
+
