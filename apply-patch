@@ -12,6 +12,9 @@ cwd=$PWD
 src=$cwd/$pkg
 
 unzip $pkg.zip
+if [[ ! -d patch ]]; then
+    tar zxf patch.tar.gz
+fi
 
 cd $src
 git init

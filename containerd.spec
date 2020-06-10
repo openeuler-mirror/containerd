@@ -2,11 +2,16 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        101
+Release:        102
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
-Source0:        %{name}-%{version}.tar.gz
+Source0:        containerd-1.2.0.zip
+Source1:        patch.tar.gz
+Source2:        apply-patch
+Source3:        series.conf
+Source4:        git-commit
+Source5:        gen-commit.sh
 
 BuildRequires:  golang glibc-static make btrfs-progs-devel
 
@@ -18,10 +23,14 @@ system: image transfer and storage, container execution and supervision,
 low-level storage and network attachments, etc.
 
 %prep
-%setup -c -n containerd
+cp %{SOURCE0} .
+cp %{SOURCE1} .
+cp %{SOURCE2} .
+cp %{SOURCE3} .
+cp %{SOURCE4} .
 
 %build
-./apply-patch
+bash ./apply-patch
 
 GO_BUILD_PATH=$PWD/_build
 install -m 0755 -vd $(dirname $GO_BUILD_PATH/src/%{goipath})
