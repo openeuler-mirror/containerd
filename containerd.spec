@@ -2,11 +2,11 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        102
+Release:        103
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
-Source0:        containerd-1.2.0.zip
+Source0:        https://github.com/containerd/containerd/archive/v1.2.0.zip
 Source1:        patch.tar.gz
 Source2:        apply-patch
 Source3:        series.conf
