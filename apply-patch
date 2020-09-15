@@ -7,11 +7,11 @@
 
 set -ex
 
-pkg=v1.2.0
+pkg=containerd-1.2.0
 cwd=$PWD
 src=$cwd/$pkg
 
-unzip $pkg.zip
+unzip v1.2.0.zip
 if [[ ! -d patch ]]; then
     tar zxf patch.tar.gz
 fi
