@@ -1,0 +1,28 @@
+From 6523d7e39a9bb45be632ff114c64329f43e1499a Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Wed, 12 Aug 2020 01:52:16 +0800
+Subject: [PATCH] containerd: do not disable cgo in containerd-shim making
+
+reason: for debuginfo
+
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index ba512ef..f69559b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -175,7 +175,7 @@ bin/%: cmd/% FORCE
+ 
+ bin/containerd-shim: cmd/containerd-shim FORCE # set !cgo and omit pie for a static shim build: https://github.com/golang/go/issues/17789#issuecomment-258542220
+ 	@echo "$(WHALE) bin/containerd-shim"
+-	@CGO_ENABLED=0 go build ${GO_GCFLAGS} ${GO_BUILD_FLAGS} -o bin/containerd-shim ${SHIM_GO_LDFLAGS} ${GO_TAGS} ./cmd/containerd-shim
++	go build ${GO_BUILD_FLAGS} -o bin/containerd-shim ${SHIM_GO_LDFLAGS} ${GO_TAGS} ./cmd/containerd-shim
+ 
+ bin/containerd-shim-runc-v1: cmd/containerd-shim-runc-v1 FORCE # set !cgo and omit pie for a static shim build: https://github.com/golang/go/issues/17789#issuecomment-258542220
+ 	@echo "$(WHALE) bin/containerd-shim-runc-v1"
+-- 
+1.8.3.1
+
