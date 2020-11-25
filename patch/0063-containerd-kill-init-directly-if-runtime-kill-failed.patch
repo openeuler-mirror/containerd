@@ -1,0 +1,37 @@
+From 3ec035244d33b4cb64adacb8133ae3e204cae55f Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Thu, 19 Nov 2020 15:49:53 +0800
+Subject: [PATCH] containerd: kill init directly if runtime kill failed
+
+Change-Id: I80a1c0c4f88530fe9732e6e9a2d1fb222ece118c
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ runtime/v1/shim/service.go | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index beb0ed8d5..7e07ab011 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -49,6 +49,7 @@ import (
+ 	specs "github.com/opencontainers/runtime-spec/specs-go"
+ 	"github.com/pkg/errors"
+ 	"github.com/sirupsen/logrus"
++	"golang.org/x/sys/unix"
+ 	"google.golang.org/grpc/codes"
+ 	"google.golang.org/grpc/status"
+ )
+@@ -390,6 +391,10 @@ func (s *Service) Kill(ctx context.Context, r *shimapi.KillRequest) (*ptypes.Emp
+ 			time.Sleep(10 * time.Second)
+ 			err := p.Kill(ctx, r.Signal, r.All)
+ 			logrus.Infof("delay kill %s retry %d error=%v", s.id, i, err)
++			if err != nil {
++				err := unix.Kill(p.Pid(), syscall.SIGKILL)
++				logrus.Infof("delay kill-direct %s retry %d error=%v", s.id, i, err)
++			}
+ 		}
+ 
+ 		logrus.Infof("force exit shim %s ...", s.id)
+-- 
+2.17.1
+
