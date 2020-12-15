@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        105
+Release:        106
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -50,3 +50,9 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
+* Fri Dec 11 2020 yangyanchao <yangyanchao6@huawei.com> 1.2.0-106
+- Type:requirement
+- ID:NA
+- CVE:NA
+- SUG:restart
+- DESC:containerd:vendor:add some symbol to support riscv
