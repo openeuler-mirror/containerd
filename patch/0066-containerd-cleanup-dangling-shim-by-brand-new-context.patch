@@ -1,0 +1,41 @@
+From a530cb668134335d4e5d6595d5d5a9cb74e16428 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Tue, 19 Jan 2021 15:01:00 +0800
+Subject: [PATCH] containerd: cleanup dangling shim by brand new context
+
+Upstream:https://github.com/containerd/containerd/pull/4048
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ runtime/v1/linux/runtime.go | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index 0feb587..66f959d 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -66,6 +66,9 @@ const (
+ 	configFilename = "config.json"
+ 	defaultRuntime = "runc"
+ 	defaultShim    = "containerd-shim"
++
++	// cleanupTimeout is default timeout for cleanup operations
++	cleanupTimeout = 1 * time.Minute
+ )
+ 
+ func init() {
+@@ -226,7 +229,10 @@ func (r *Runtime) Create(ctx context.Context, id string, opts runtime.CreateOpts
+ 	}
+ 	defer func() {
+ 		if err != nil {
+-			kerr := s.KillShim(ctx)
++			deferCtx, deferCancel := context.WithTimeout(
++				namespaces.WithNamespace(context.TODO(), namespace), cleanupTimeout)
++			defer deferCancel()
++			kerr := s.KillShim(deferCtx)
+ 			log.G(ctx).WithError(err).Errorf("revert: kill shim error=%v", kerr)
+ 		}
+ 	}()
+-- 
+1.8.3.1
+
