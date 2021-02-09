@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        102
+Release:        200
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -41,6 +41,16 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
+* Wed Feb 9 2021 xiadanni<xiadanni1@huawei.com> - 1.2.0-200
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:sync bugfix and bump version to 200, bugfix include
+       1. check task list to avoid unnecessary cleanup.
+       2. fix dead loop
+       3. cleanup dangling shim by brand new context
+       4. fix potential panic for task in unknown state
+
 * Wed Nov 25 2020 xiadanni<xiadanni1@huawei.com> - 1.2.0-102
 - Type:bugfix
 - ID:NA
