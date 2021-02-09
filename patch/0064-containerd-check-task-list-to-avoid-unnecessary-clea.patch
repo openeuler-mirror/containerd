@@ -1,0 +1,30 @@
+From 53111d2f094b738a4b3a35bcec85f78324ca8509 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Tue, 24 Nov 2020 11:00:32 +0800
+Subject: [PATCH] containerd: check task list to avoid unnecessary cleanup
+
+Signed-off-by: Lantao Liu <lantaol@google.com>
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ runtime/v1/linux/runtime.go | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index 5be785d..0feb587 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -374,6 +374,11 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 		shimExit := make(chan struct{})
+ 		s, err := bundle.NewShimClient(ctx, ns, ShimConnect(r.config, func() {
+ 			close(shimExit)
++			if _, err := r.tasks.Get(ctx, id); err != nil {
++				// Task was never started or was already successfully deleted
++				return
++			}
++
+ 			err := r.cleanupAfterDeadShim(ctx, bundle, ns, id, pid)
+ 			if err != nil {
+ 				log.G(ctx).WithError(err).WithField("bundle", bundle.path).
+-- 
+1.8.3.1
+
