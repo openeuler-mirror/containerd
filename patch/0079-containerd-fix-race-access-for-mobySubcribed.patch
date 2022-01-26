@@ -1,0 +1,47 @@
+From fe8f7f5acac4f0fcf75218e26c1f3f874a77bf44 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Wed, 1 Sep 2021 07:29:43 +0800
+Subject: [PATCH] [Huawei]containerd:fix race access for mobySubcribed
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ events/exchange/exchange.go | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/events/exchange/exchange.go b/events/exchange/exchange.go
+index 540f18054..ad642563a 100644
+--- a/events/exchange/exchange.go
++++ b/events/exchange/exchange.go
+@@ -19,6 +19,7 @@ package exchange
+ import (
+ 	"context"
+ 	"strings"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/containerd/containerd/errdefs"
+@@ -49,10 +50,10 @@ func NewExchange() *Exchange {
+ var _ events.Publisher = &Exchange{}
+ var _ events.Forwarder = &Exchange{}
+ var _ events.Subscriber = &Exchange{}
+-var mobySubcribed = false
++var mobySubcribed = int32(0)
+ 
+ func MobySubscribed() bool {
+-	return mobySubcribed
++	return atomic.LoadInt32(&mobySubcribed) == 1
+ }
+ 
+ // Forward accepts an envelope to be direcly distributed on the exchange.
+@@ -170,7 +171,7 @@ func (e *Exchange) Subscribe(ctx context.Context, fs ...string) (ch <-chan *even
+ 	for _, s := range fs {
+ 		if !MobySubscribed() && s == "namespace==moby,topic~=|^/tasks/|" {
+ 			queue.Namespace = "moby"
+-			mobySubcribed = true
++			atomic.StoreInt32(&mobySubcribed, 1)
+ 		}
+ 	}
+ 
+-- 
+2.27.0
+

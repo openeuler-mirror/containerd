@@ -1,0 +1,25 @@
+From 31cd7bb5147c42384ffd28e9a64f0c5d5c4f7500 Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Wed, 10 Nov 2021 16:10:37 +0800
+Subject: [PATCH] containerd: fix publish command wait block forever
+
+---
+ cmd/containerd-shim/main_unix.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmd/containerd-shim/main_unix.go b/cmd/containerd-shim/main_unix.go
+index a07932c..37b621e 100644
+--- a/cmd/containerd-shim/main_unix.go
++++ b/cmd/containerd-shim/main_unix.go
+@@ -308,7 +308,7 @@ func (l *remoteEventsPublisher) doPublish(ctx context.Context, topic string, eve
+ 	if err != nil {
+ 		return err
+ 	}
+-	status, err := shim.Default.Wait(cmd, c)
++	status, err := shim.Default.WaitTimeout(cmd, c, 30)
+ 	if err != nil {
+ 		return errors.Wrapf(err, "failed to publish event: %s", b.String())
+ 	}
+-- 
+2.27.0
+

@@ -1,0 +1,27 @@
+From 27be5a04fc8b28e14ff296f5b9356ace8feb39ce Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Thu, 18 Feb 2021 20:28:52 +0800
+Subject: [PATCH] containerd: add check in spec
+
+Change-Id: I8ddf63ec1c4da479e90838678136237b5822d463
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index 96c2370..511b6f2 100644
+--- a/Makefile
++++ b/Makefile
+@@ -151,7 +151,7 @@ build: ## build the go packages
+ 
+ test: ## run tests, except integration tests and tests that require root
+ 	@echo "$(WHALE) $@"
+-	@go test ${TESTFLAGS} $(filter-out ${INTEGRATION_PACKAGE},${PACKAGES})
++	@go test ${TESTFLAGS} ./gc
+ 
+ root-test: ## run tests, except integration tests
+ 	@echo "$(WHALE) $@"
+-- 
+1.8.3.1
+

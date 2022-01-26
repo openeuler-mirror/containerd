@@ -1,0 +1,149 @@
+From 1c8a3bb488eb68523a3ae112854fcdd7326686cb Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Wed, 1 Sep 2021 07:23:17 +0800
+Subject: [PATCH] [backport]containerd:bump containerd/ttrpc
+ 699c4e40d1e7416e08bf7019c7ce2e9beced4636
+
+full diff: https://github.com/containerd/ttrpc/compare/f02858b1457c5ca3aaec3a0803eb0d59f96e41d6...699c4e40d1e7416e08bf7019c7ce2e9beced4636
+
+- containerd/ttrpc#33 Fix returns error message
+- containerd/ttrpc#35 Make onclose an option
+
+Conflict:vendor.conf
+Reference:https://github.com/containerd/containerd/commit/8c5779c32b70a0c55e1c94eb45b305897f7cf3f1
+
+Signed-off-by: Sebastiaan van Stijn <github@gone.nl>
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ runtime/v1/shim/client/client.go              |  3 +--
+ runtime/v2/binary.go                          |  3 +--
+ runtime/v2/shim.go                            |  3 +--
+ vendor.conf                                   |  2 +-
+ vendor/github.com/containerd/ttrpc/client.go  | 21 ++++++++++++-------
+ .../github.com/containerd/ttrpc/services.go   |  2 +-
+ 6 files changed, 19 insertions(+), 15 deletions(-)
+
+diff --git a/runtime/v1/shim/client/client.go b/runtime/v1/shim/client/client.go
+index 48d62e537..6861df081 100644
+--- a/runtime/v1/shim/client/client.go
++++ b/runtime/v1/shim/client/client.go
+@@ -299,8 +299,7 @@ func WithConnect(address string, onClose func()) Opt {
+ 		if err != nil {
+ 			return nil, nil, err
+ 		}
+-		client := ttrpc.NewClient(conn)
+-		client.OnClose(onClose)
++		client := ttrpc.NewClient(conn, ttrpc.WithOnClose(onClose))
+ 		return shimapi.NewShimClient(client), conn, nil
+ 	}
+ }
+diff --git a/runtime/v2/binary.go b/runtime/v2/binary.go
+index 41de0d3e0..223b85300 100644
+--- a/runtime/v2/binary.go
++++ b/runtime/v2/binary.go
+@@ -97,8 +97,7 @@ func (b *binary) Start(ctx context.Context) (_ *shim, err error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	client := ttrpc.NewClient(conn)
+-	client.OnClose(func() { conn.Close() })
++	client := ttrpc.NewClient(conn, ttrpc.WithOnClose(func() { _ = conn.Close() }))
+ 	return &shim{
+ 		bundle:  b.bundle,
+ 		client:  client,
+diff --git a/runtime/v2/shim.go b/runtime/v2/shim.go
+index 982d1bb34..8e746712b 100644
+--- a/runtime/v2/shim.go
++++ b/runtime/v2/shim.go
+@@ -75,8 +75,7 @@ func loadShim(ctx context.Context, bundle *Bundle, events *exchange.Exchange, rt
+ 		}
+ 	}()
+ 
+-	client := ttrpc.NewClient(conn)
+-	client.OnClose(func() { conn.Close() })
++	client := ttrpc.NewClient(conn, ttrpc.WithOnClose(func() { _ = conn.Close() }))
+ 	s := &shim{
+ 		client:  client,
+ 		task:    task.NewTaskClient(client),
+diff --git a/vendor.conf b/vendor.conf
+index dbc3eecd9..0f76be3b0 100644
+--- a/vendor.conf
++++ b/vendor.conf
+@@ -36,7 +36,7 @@ github.com/Microsoft/go-winio v0.4.11
+ github.com/Microsoft/hcsshim v0.7.12
+ google.golang.org/genproto d80a6e20e776b0b17a324d0ba1ab50a39c8e8944
+ golang.org/x/text 19e51611da83d6be54ddafce4a4af510cb3e9ea4
+-github.com/containerd/ttrpc 2a805f71863501300ae1976d29f0454ae003e85a
++github.com/containerd/ttrpc 699c4e40d1e7416e08bf7019c7ce2e9beced4636
+ github.com/syndtr/gocapability db04d3cc01c8b54962a58ec7e491717d06cfcc16
+ gotest.tools v2.1.0
+ github.com/google/go-cmp v0.1.0
+diff --git a/vendor/github.com/containerd/ttrpc/client.go b/vendor/github.com/containerd/ttrpc/client.go
+index e40592dd7..bc2bbde1b 100644
+--- a/vendor/github.com/containerd/ttrpc/client.go
++++ b/vendor/github.com/containerd/ttrpc/client.go
+@@ -48,7 +48,15 @@ type Client struct {
+ 	err       error
+ }
+ 
+-func NewClient(conn net.Conn) *Client {
++type ClientOpts func(c *Client)
++
++func WithOnClose(onClose func()) ClientOpts {
++	return func(c *Client) {
++		c.closeFunc = onClose
++	}
++}
++
++func NewClient(conn net.Conn, opts ...ClientOpts) *Client {
+ 	c := &Client{
+ 		codec:     codec{},
+ 		conn:      conn,
+@@ -59,6 +67,10 @@ func NewClient(conn net.Conn) *Client {
+ 		closeFunc: func() {},
+ 	}
+ 
++	for _, o := range opts {
++		o(c)
++	}
++
+ 	go c.run()
+ 	return c
+ }
+@@ -135,11 +147,6 @@ func (c *Client) Close() error {
+ 	return nil
+ }
+ 
+-// OnClose allows a close func to be called when the server is closed
+-func (c *Client) OnClose(closer func()) {
+-	c.closeFunc = closer
+-}
+-
+ type message struct {
+ 	messageHeader
+ 	p   []byte
+@@ -249,7 +256,7 @@ func (c *Client) recv(resp *Response, msg *message) error {
+ 	}
+ 
+ 	if msg.Type != messageTypeResponse {
+-		return errors.New("unkown message type received")
++		return errors.New("unknown message type received")
+ 	}
+ 
+ 	defer c.channel.putmbuf(msg.p)
+diff --git a/vendor/github.com/containerd/ttrpc/services.go b/vendor/github.com/containerd/ttrpc/services.go
+index e90963825..fe1cade5a 100644
+--- a/vendor/github.com/containerd/ttrpc/services.go
++++ b/vendor/github.com/containerd/ttrpc/services.go
+@@ -76,7 +76,7 @@ func (s *serviceSet) dispatch(ctx context.Context, serviceName, methodName strin
+ 		switch v := obj.(type) {
+ 		case proto.Message:
+ 			if err := proto.Unmarshal(p, v); err != nil {
+-				return status.Errorf(codes.Internal, "ttrpc: error unmarshaling payload: %v", err.Error())
++				return status.Errorf(codes.Internal, "ttrpc: error unmarshalling payload: %v", err.Error())
+ 			}
+ 		default:
+ 			return status.Errorf(codes.Internal, "ttrpc: error unsupported request type: %T", v)
+-- 
+2.27.0
+
