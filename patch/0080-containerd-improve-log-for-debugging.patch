@@ -1,0 +1,137 @@
+From 003a26f92ccfd6f296910874ed9ad55d652413cc Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Fri, 29 Oct 2021 16:37:28 +0800
+Subject: [PATCH] containerd: improve log for debugging
+
+add following logs for debugging
+1. return event publish errors
+2. redirect is used to make sure that containerd still can read the log
+   of shim after restart
+
+Conflict:NA
+Reference:
+https://github.com/containerd/containerd/pull/3179/commits/74eb0dc81221bffc192a349cf8b14fe7947b7a73
+https://github.com/containerd/containerd/pull/5293/commits/45df696bf3fe3eda15bbf0f2c00ddc2cfeddcdcc
+https://github.com/containerd/containerd/commit/fbb80b9510db14a95b8ffa6c7842666ecf520489
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ cmd/containerd-shim/main_unix.go | 23 ++++++++++++++++++++---
+ runtime/v1/linux/runtime.go      |  1 +
+ runtime/v1/shim/client/client.go | 22 ++++++++++------------
+ 3 files changed, 31 insertions(+), 15 deletions(-)
+
+diff --git a/cmd/containerd-shim/main_unix.go b/cmd/containerd-shim/main_unix.go
+index 3a5bb6170..a07932cef 100644
+--- a/cmd/containerd-shim/main_unix.go
++++ b/cmd/containerd-shim/main_unix.go
+@@ -61,6 +61,12 @@ var (
+ 	criuFlag             string
+ 	systemdCgroupFlag    bool
+ 	containerdBinaryFlag string
++
++	bufPool = sync.Pool{
++		New: func() interface{} {
++			return bytes.NewBuffer(nil)
++		},
++	}
+ )
+ 
+ func init() {
+@@ -101,6 +107,10 @@ func main() {
+ 		stderr.Close()
+ 	}()
+ 
++	// redirect the following output into fifo to make sure that containerd
++	// still can read the log after restart
++	logrus.SetOutput(stdout)
++
+ 	if err := executeShim(); err != nil {
+ 		fmt.Fprintf(os.Stderr, "containerd-shim: %s\n", err)
+ 		os.Exit(1)
+@@ -110,7 +120,7 @@ func main() {
+ // If containerd server process dies, we need the shim to keep stdout/err reader
+ // FDs so that Linux does not SIGPIPE the shim process if it tries to use its end of
+ // these pipes.
+-func openStdioKeepAlivePipes(dir string) (io.ReadCloser, io.ReadCloser, error) {
++func openStdioKeepAlivePipes(dir string) (io.ReadWriteCloser, io.ReadWriteCloser, error) {
+ 	background := context.Background()
+ 	keepStdoutAlive, err := shimlog.OpenShimStdoutLog(background, dir)
+ 	if err != nil {
+@@ -287,16 +297,23 @@ func (l *remoteEventsPublisher) doPublish(ctx context.Context, topic string, eve
+ 	}
+ 	cmd := exec.CommandContext(ctx, containerdBinaryFlag, "--address", l.address, "publish", "--topic", topic, "--namespace", ns)
+ 	cmd.Stdin = bytes.NewReader(data)
++	b := bufPool.Get().(*bytes.Buffer)
++	defer func() {
++		b.Reset()
++		bufPool.Put(b)
++	}()
++	cmd.Stdout = b
++	cmd.Stderr = b
+ 	c, err := shim.Default.Start(cmd)
+ 	if err != nil {
+ 		return err
+ 	}
+ 	status, err := shim.Default.Wait(cmd, c)
+ 	if err != nil {
+-		return err
++		return errors.Wrapf(err, "failed to publish event: %s", b.String())
+ 	}
+ 	if status != 0 {
+-		return errors.New("failed to publish event")
++		return errors.Errorf("failed to publish event: %s", b.String())
+ 	}
+ 	return nil
+ }
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index ca3674808..eb3927305 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -379,6 +379,7 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 		log.G(ctx).Infof("load-task %s/%s/%s Pid=%d", r.state, ns, id, pid)
+ 		shimExit := make(chan struct{})
+ 		s, err := bundle.NewShimClient(ctx, ns, ShimConnect(r.config, func() {
++			log.G(ctx).WithField("id", id).Info("shim reaped")
+ 			close(shimExit)
+ 			if _, err := r.tasks.Get(ctx, id); err != nil {
+ 				// Task was never started or was already successfully deleted
+diff --git a/runtime/v1/shim/client/client.go b/runtime/v1/shim/client/client.go
+index eafb0d712..6861df081 100644
+--- a/runtime/v1/shim/client/client.go
++++ b/runtime/v1/shim/client/client.go
+@@ -77,21 +77,19 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
+ 
+ 		var stdoutLog io.ReadWriteCloser
+ 		var stderrLog io.ReadWriteCloser
+-		if debug {
+-			stdoutLog, err = v1.OpenShimStdoutLog(ctx, config.WorkDir)
+-			if err != nil {
+-				return nil, nil, errors.Wrapf(err, "failed to create stdout log")
+-			}
+-
+-			stderrLog, err = v1.OpenShimStderrLog(ctx, config.WorkDir)
+-			if err != nil {
+-				return nil, nil, errors.Wrapf(err, "failed to create stderr log")
+-			}
++		stdoutLog, err = v1.OpenShimStdoutLog(ctx, config.WorkDir)
++		if err != nil {
++			return nil, nil, errors.Wrapf(err, "failed to create stdout log")
++		}
+ 
+-			go io.Copy(os.Stdout, stdoutLog)
+-			go io.Copy(os.Stderr, stderrLog)
++		stderrLog, err = v1.OpenShimStderrLog(ctx, config.WorkDir)
++		if err != nil {
++			return nil, nil, errors.Wrapf(err, "failed to create stderr log")
+ 		}
+ 
++		go io.Copy(os.Stdout, stdoutLog)
++		go io.Copy(os.Stderr, stderrLog)
++
+ 		if err := writeFile(filepath.Join(config.Path, "address"), address); err != nil {
+ 			return nil, nil, err
+ 		}
+-- 
+2.27.0
+

@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        108
+Release:        109
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -36,6 +36,7 @@ GO_BUILD_PATH=$PWD/_build
 install -m 0755 -vd $(dirname $GO_BUILD_PATH/src/%{goipath})
 ln -fs $PWD $GO_BUILD_PATH/src/%{goipath}
 cd $GO_BUILD_PATH/src/%{goipath}
+export GO111MODULE=off
 export GOPATH=$GO_BUILD_PATH:%{gopath}
 export BUILDTAGS="no_btrfs no_cri"
 make
@@ -51,6 +52,26 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
+* Sat Jan 22 2022 songyanting<songyanting@huawei.com> - 1.2.0-109
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:sync bugfix, include
+       1. add check in spec
+       2. kill container init process if runc start returns error
+       3. fix containerd-shim residual when kill containerd during starting container
+       4. fix deadlock on commit error
+       5. backport upstream & ttrpc patches
+       6. fix exec event missing due to pid reuse
+       7. fix dm left when pause container and kill shim
+       8. add CGO security build options
+       9. fix start container failed with id exists
+      10. drop opt package
+      11. fix race access for mobySubscribed
+      12. improve log for debugging
+      13. reduce permission for bundle dir
+      14. fix publish command wait block forever
+
 * Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 1.2.0-108
 - Type:bugfix
 - ID:NA

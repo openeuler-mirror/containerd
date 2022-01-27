@@ -1,0 +1,60 @@
+From 39183d7937d408afceb9456972ad3e42beb336c6 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Sat, 27 Feb 2021 11:19:22 +0800
+Subject: [PATCH] containerd:fix deadlock on commit error
+
+upstream:https://github.com/containerd/containerd/commit/5b9bd993a87008e06a34258f0672a78564adab13
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ content/local/writer.go | 5 +++--
+ diff/walking/differ.go  | 5 +++--
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/content/local/writer.go b/content/local/writer.go
+index 223b145..3a94744 100644
+--- a/content/local/writer.go
++++ b/content/local/writer.go
+@@ -74,6 +74,9 @@ func (w *writer) Write(p []byte) (n int, err error) {
+ }
+ 
+ func (w *writer) Commit(ctx context.Context, size int64, expected digest.Digest, opts ...content.Opt) error {
++	// Ensure even on error the writer is fully closed
++	defer unlock(w.ref)
++
+ 	var base content.Info
+ 	for _, opt := range opts {
+ 		if err := opt(&base); err != nil {
+@@ -81,8 +84,6 @@ func (w *writer) Commit(ctx context.Context, size int64, expected digest.Digest,
+ 		}
+ 	}
+ 
+-	// Ensure even on error the writer is fully closed
+-	defer unlock(w.ref)
+ 	fp := w.fp
+ 	w.fp = nil
+ 
+diff --git a/diff/walking/differ.go b/diff/walking/differ.go
+index a45a563..1c82860 100644
+--- a/diff/walking/differ.go
++++ b/diff/walking/differ.go
+@@ -106,14 +106,15 @@ func (s *walkingDiff) Compare(ctx context.Context, lower, upper []mount.Mount, o
+ 				}
+ 			}()
+ 			if !newReference {
+-				if err := cw.Truncate(0); err != nil {
++				if err = cw.Truncate(0); err != nil {
+ 					return err
+ 				}
+ 			}
+ 
+ 			if isCompressed {
+ 				dgstr := digest.SHA256.Digester()
+-				compressed, err := compression.CompressStream(cw, compression.Gzip)
++				var compressed io.WriteCloser
++				compressed, err = compression.CompressStream(cw, compression.Gzip)
+ 				if err != nil {
+ 					return errors.Wrap(err, "failed to get compressed stream")
+ 				}
+-- 
+1.8.3.1
+
