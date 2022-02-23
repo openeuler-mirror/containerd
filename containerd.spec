@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        108
+Release:        109
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -51,6 +51,9 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
+Thu Feb 22 2022 lvxiaoqian <xiaoqian@nj.iscas.ac.cn> - 1.2.0-109
+- upload patch.tar.gz
+
 * Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 1.2.0-108
 - Type:bugfix
 - ID:NA
