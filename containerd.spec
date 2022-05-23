@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        109
+Release:        301
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -52,14 +52,20 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
-* Sat Jan 22 2022 songyanting<songyanting@huawei.com> - 1.2.0-109
+* Tue May 10 2022 Vanient<xiadanni1@huawei.com> - 1.2.0-301
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:Use fs.RootPath when mounting volumes for bundle dir to fix CVE-2022-23648
+
+* Sat Jan 22 2022 songyanting<songyanting@huawei.com> - 1.2.0-300
 - Type:bugfix
 - ID:NA
 - SUG:NA
 - DESC:sync bugfix, include
        1. add check in spec
        2. kill container init process if runc start returns error
-       3. fix containerd-shim residual when kill containerd during starting container
+       3. fix containerd-shim residual when kill containerd durin
        4. fix deadlock on commit error
        5. backport upstream & ttrpc patches
        6. fix exec event missing due to pid reuse
@@ -71,6 +77,12 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
       12. improve log for debugging
       13. reduce permission for bundle dir
       14. fix publish command wait block forever
+
+* Mon Jan 10 2022 xiadanni<xiadanni1@huawei.com> - 1.2.0-109
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:disable go module build
 
 * Thu Mar 18 2021 xiadanni<xiadanni1@huawei.com> - 1.2.0-108
 - Type:bugfix
