@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        301
+Release:        302
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -52,6 +52,12 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
+* Wed Jun 22 2022 zhangsong234<zhangsong34@huawei.com> - 1.2.0-302
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:put get pid lock after set process exited to avoid deadlock
+
 * Tue May 10 2022 Vanient<xiadanni1@huawei.com> - 1.2.0-301
 - Type:bugfix
 - ID:NA
