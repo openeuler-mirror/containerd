@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        302
+Release:        303
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -52,6 +52,12 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
+* Mon Jul 4 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-303
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC: Limit the response size of ExecSync to fix CVE-2022-31030
+
 * Wed Jun 22 2022 zhangsong234<zhangsong34@huawei.com> - 1.2.0-302
 - Type:bugfix
 - ID:NA
