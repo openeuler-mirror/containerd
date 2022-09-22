@@ -1,0 +1,43 @@
+From 7a294fa5d943401ed3cb9149f69f1d12f372c374 Mon Sep 17 00:00:00 2001
+From: Vanient <xiadanni1@huawei.com>
+Date: Thu, 9 Jun 2022 10:48:09 +0800
+Subject: [PATCH 2/2] schema1: reject ambiguous documents
+
+Conflict:NA
+Reference:https://github.com/containerd/containerd/commit/70c88f507579277ab7af23b06666e3b57d4b4f2d
+
+Signed-off-by: Vanient <xiadanni1@huawei.com>
+---
+ remotes/docker/schema1/converter.go | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/remotes/docker/schema1/converter.go b/remotes/docker/schema1/converter.go
+index 766c24a26..c618a33d5 100644
+--- a/remotes/docker/schema1/converter.go
++++ b/remotes/docker/schema1/converter.go
+@@ -250,6 +250,9 @@ func (c *Converter) fetchManifest(ctx context.Context, desc ocispec.Descriptor)
+ 	if err := json.Unmarshal(b, &m); err != nil {
+ 		return err
+ 	}
++	if len(m.Manifests) != 0 || len(m.Layers) != 0 {
++		return errors.New("converter: expected schema1 document but found extra keys")
++	}
+ 	c.pulledManifest = &m
+ 
+ 	return nil
+@@ -466,8 +469,10 @@ type history struct {
+ }
+ 
+ type manifest struct {
+-	FSLayers []fsLayer `json:"fsLayers"`
+-	History  []history `json:"history"`
++	FSLayers  []fsLayer       `json:"fsLayers"`
++	History   []history       `json:"history"`
++	Layers    json.RawMessage `json:"layers,omitempty"`    // OCI manifest
++	Manifests json.RawMessage `json:"manifests,omitempty"` // OCI index
+ }
+ 
+ type v1History struct {
+-- 
+2.27.0
+

@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        303
+Release:        304
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -52,6 +52,12 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
+* Thu Sep 22 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-304
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC: bugfix and add CGO security build option
+
 * Mon Jul 4 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-303
 - Type:bugfix
 - ID:NA
