@@ -1,0 +1,31 @@
+From 9a92dd95046003cd661f8cd76429b2e424907a2a Mon Sep 17 00:00:00 2001
+From: Vanient <xiadanni1@huawei.com>
+Date: Mon, 21 Mar 2022 06:57:02 +0800
+Subject: [PATCH] [Backport]containerd: Add lock for ListPids
+
+Add the missing locks in ListPids
+Conflict:NA
+Reference:https://github.com/containerd/containerd/commit/fcf3b275fcd404ddf5fe75d5629d2168742ec0d3
+
+Signed-off-by: Vanient <xiadanni1@huawei.com>
+---
+ runtime/v1/shim/service.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index 7d7327cd8..435f02e3c 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -434,6 +434,9 @@ func (s *Service) ListPids(ctx context.Context, r *shimapi.ListPidsRequest) (*sh
+ 		return nil, errdefs.ToGRPC(err)
+ 	}
+ 	var processes []*task.ProcessInfo
++
++	s.mu.Lock()
++	defer s.mu.Unlock()
+ 	for _, pid := range pids {
+ 		pInfo := task.ProcessInfo{
+ 			Pid: pid,
+-- 
+2.27.0
+
