@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        304
+Release:        305
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -30,6 +30,7 @@ cp %{SOURCE3} .
 cp %{SOURCE4} .
 
 %build
+echo %{VERSION}.%{RELEASE} > containerd_version
 bash ./apply-patch
 
 GO_BUILD_PATH=$PWD/_build
@@ -52,6 +53,12 @@ install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
 %{_bindir}/containerd-shim
 
 %changelog
+* Wed Nov 16 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-305
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC: fix version number wrong
+
 * Thu Sep 22 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-304
 - Type:bugfix
 - ID:NA
