@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        305
+Release:        306
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -41,18 +41,26 @@ export GO111MODULE=off
 export GOPATH=$GO_BUILD_PATH:%{gopath}
 export BUILDTAGS="no_btrfs no_cri"
 make
-strip ./bin/containerd ./bin/containerd-shim
+strip ./bin/containerd ./bin/containerd-shim ./bin/ctr
 
 %install
 install -d $RPM_BUILD_ROOT/%{_bindir}
 install -p -m 755 bin/containerd $RPM_BUILD_ROOT/%{_bindir}/containerd
 install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
+install -p -m 755 bin/ctr $RPM_BUILD_ROOT/%{_bindir}/ctr
 
 %files
 %{_bindir}/containerd
 %{_bindir}/containerd-shim
+%{_bindir}/ctr
 
 %changelog
+* Wed Nov 16 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-306
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC: add ctr binary into package
+
 * Wed Nov 16 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-305
 - Type:bugfix
 - ID:NA
