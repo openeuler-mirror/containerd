@@ -1,20 +1,41 @@
-From 02d2ff546e0727d57bcd14b73aafcc23961b8304 Mon Sep 17 00:00:00 2001
-From: zhongjiawei <zhongjiawei1@huawei.com>
-Date: Tue, 13 Dec 2022 11:22:07 +0800
-Subject: [PATCH] containerd:Fix goroutine leak in Exec
+From 13c66a426dcbb0ecef601c386b116ad7a960896a Mon Sep 17 00:00:00 2001
+From: Danny Canter <danny@dcantah.dev>
+Date: Mon, 28 Nov 2022 14:45:34 -0800
+Subject: [PATCH] CRI stream server: Fix goroutine leak in Exec
 
-Conflict:NA
-Reference:https://github.com/containerd/containerd/commit/a05d175400b1145e5e6a735a6710579d181e7fb0 
-Signed-off-by:  mcgowan <derek@mcg.dev>
+In the CRI streaming server, a goroutine (`handleResizeEvents`) is launched
+to handle terminal resize events if a TTY is asked for with an exec; this
+is the sender of terminal resize events. Another goroutine is launched
+shortly after successful process startup to actually do something with
+these events, however the issue arises if the exec process fails to start
+for any reason that would have `process.Start` return non-nil. The receiver
+goroutine never gets launched so the sender is stuck blocked on a channel send
+infinitely.
+
+This could be used in a malicious manner by repeatedly launching execs
+with a command that doesn't exist in the image, as a single goroutine
+will get leaked on every invocation which will slowly grow containerd's
+memory usage.
+
+Signed-off-by: Danny Canter <danny@dcantah.dev>
+(cherry picked from commit f012617edfd887a29345888d65640a7ccd7c72ce)
 ---
- .../pkg/kubelet/server/remotecommand/httpstream.go | 14 +++++++++++---
- 1 file changed, 11 insertions(+), 3 deletions(-)
+ .../kubelet/server/remotecommand/httpstream.go    | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
 
 diff --git a/vendor/k8s.io/kubernetes/pkg/kubelet/server/remotecommand/httpstream.go b/vendor/k8s.io/kubernetes/pkg/kubelet/server/remotecommand/httpstream.go
-index 387ad3d..0da6f99 100644
+index 387ad3d5a..9591a5426 100644
 --- a/vendor/k8s.io/kubernetes/pkg/kubelet/server/remotecommand/httpstream.go
 +++ b/vendor/k8s.io/kubernetes/pkg/kubelet/server/remotecommand/httpstream.go
-@@ -116,7 +116,7 @@ func createStreams(req *http.Request, w http.ResponseWriter, opts *Options, supp
+@@ -17,6 +17,7 @@ limitations under the License.
+ package remotecommand
+ 
+ import (
++	gocontext "context"
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+@@ -116,7 +117,7 @@ func createStreams(req *http.Request, w http.ResponseWriter, opts *Options, supp
  
  	if ctx.resizeStream != nil {
  		ctx.resizeChan = make(chan remotecommand.TerminalSize)
@@ -23,7 +44,7 @@ index 387ad3d..0da6f99 100644
  	}
  
  	return ctx, true
-@@ -410,7 +410,7 @@ WaitForStreams:
+@@ -410,7 +411,7 @@ WaitForStreams:
  // supportsTerminalResizing returns false because v1ProtocolHandler doesn't support it.
  func (*v1ProtocolHandler) supportsTerminalResizing() bool { return false }
  
@@ -32,7 +53,7 @@ index 387ad3d..0da6f99 100644
  	defer runtime.HandleCrash()
  
  	decoder := json.NewDecoder(stream)
-@@ -419,7 +419,15 @@ func handleResizeEvents(stream io.Reader, channel chan<- remotecommand.TerminalS
+@@ -419,7 +420,15 @@ func handleResizeEvents(stream io.Reader, channel chan<- remotecommand.TerminalS
  		if err := decoder.Decode(&size); err != nil {
  			break
  		}

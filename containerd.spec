@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.2.0
 Name:           containerd
-Release:        307
+Release:        308
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -55,6 +55,12 @@ install -p -m 755 bin/ctr $RPM_BUILD_ROOT/%{_bindir}/ctr
 %{_bindir}/ctr
 
 %changelog
+* Thu Dec 16 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-308
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix k8s build fail without import context
+
 * Tue Dec 13 2022 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-307
 - Type:bugfix
 - ID:NA
