@@ -1,17 +1,13 @@
 %global goipath github.com/containerd/containerd
 %global debug_package %{nil}
-Version:        1.2.0
+Version:        1.6.20
 Name:           containerd
-Release:        309
+Release:        1
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
-Source0:        https://github.com/containerd/containerd/archive/v1.2.0.zip
-Source1:        patch.tar.gz
-Source2:        apply-patch
-Source3:        series.conf
-Source4:        git-commit
-Source5:        gen-commit.sh
+Source0:        https://github.com/containerd/containerd/archive/v1.6.20.zip
+Source1:        apply-patch
 
 BuildRequires:  golang glibc-static make btrfs-progs-devel git
 
@@ -25,9 +21,6 @@ low-level storage and network attachments, etc.
 %prep
 cp %{SOURCE0} .
 cp %{SOURCE1} .
-cp %{SOURCE2} .
-cp %{SOURCE3} .
-cp %{SOURCE4} .
 
 %build
 echo %{VERSION}.%{RELEASE} > containerd_version
@@ -55,6 +48,12 @@ install -p -m 755 bin/ctr $RPM_BUILD_ROOT/%{_bindir}/ctr
 %{_bindir}/ctr
 
 %changelog
+* Wed Apr 19 2023 xulei<xulei@xfusion.com> - 1.6.20-1
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:update to 1.6.20
+
 * Mon Feb 27 2023 zhongjiawei<zhongjiawei1@huawei.com> - 1.2.0-309
 - Type:CVE
 - ID:NA
