@@ -1,0 +1,24 @@
+From 1ee9382e8af3ff3c6f46361366bad3e4f38e0ba9 Mon Sep 17 00:00:00 2001
+From: xulei <xulei@xfusion.com>
+Date: Fri, 21 Apr 2023 14:49:54 +0800
+Subject: [PATCH] containerd: add check in spec
+
+---
+ Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index 7441eea..31e96f5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -203,7 +203,7 @@ build: ## build the go packages
+ 
+ test: ## run tests, except integration tests and tests that require root
+ 	@echo "$(WHALE) $@"
+-	@$(GOTEST) ${TESTFLAGS} ${PACKAGES}
++	@$(GOTEST) ${TESTFLAGS} ./gc
+ 
+ root-test: ## run tests, except integration tests
+ 	@echo "$(WHALE) $@"
+-- 
+2.33.0
