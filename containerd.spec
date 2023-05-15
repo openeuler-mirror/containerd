@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.6.20
 Name:           containerd
-Release:        2
+Release:        3
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -12,6 +12,8 @@ Source2:        apply-patch
 Source3:        series.conf
 Source4:        git-commit
 Source5:        gen-commit.sh
+Source6:        containerd.service
+Source7:        config.toml
 
 BuildRequires:  golang glibc-static make btrfs-progs-devel git
 
@@ -41,20 +43,36 @@ export GO111MODULE=off
 export GOPATH=$GO_BUILD_PATH:%{gopath}
 export BUILDTAGS="no_btrfs no_cri"
 make
-strip ./bin/containerd ./bin/containerd-shim ./bin/ctr
 
 %install
 install -d $RPM_BUILD_ROOT/%{_bindir}
-install -p -m 755 bin/containerd $RPM_BUILD_ROOT/%{_bindir}/containerd
-install -p -m 755 bin/containerd-shim $RPM_BUILD_ROOT/%{_bindir}/containerd-shim
-install -p -m 755 bin/ctr $RPM_BUILD_ROOT/%{_bindir}/ctr
+install -p -m 755 bin/* $RPM_BUILD_ROOT/%{_bindir}/
+install -D -p -m 0644 %{S:6} %{buildroot}%{_unitdir}/containerd.service
+install -D -p -m 0644 %{S:7} %{buildroot}%{_sysconfdir}/containerd/config.toml
+
+%post
+%systemd_post containerd.service
+
+%preun
+%systemd_prerun containerd.service
+
+%postun
+%systemd_postun_with_restart containerd.service
 
 %files
-%{_bindir}/containerd
-%{_bindir}/containerd-shim
-%{_bindir}/ctr
+%{_bindir}/*
+%{_unitdir}/containerd.service
+%dir %{_sysconfdir}/containerd
+%config(noreplace) %{_sysconfdir}/containerd/config.toml
+%exclude %{_bindir}/containerd-stress
 
 %changelog
+* Mon May 15 2023 zhangzhihui<zhangzhihui@xfusion.com> - 1.6.20-3
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:add other binaries to support high version.
+
 * Fri Apr 21 2023 xulei<xulei@xfusion.com> - 1.6.20-2
 - Type:bugfix
 - ID:NA

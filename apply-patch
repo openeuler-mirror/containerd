@@ -34,5 +34,5 @@ do
 done <"$series"
 cd $cwd
 cp -rf $src/* .
-mv $src/.git $src/git
+mv $src/.git $cwd/.git
 rm -rf containerd-1.6.20
