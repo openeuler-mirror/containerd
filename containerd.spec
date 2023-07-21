@@ -1,12 +1,12 @@
 %global goipath github.com/containerd/containerd
 %global debug_package %{nil}
-Version:        1.6.20
+Version:        1.6.21
 Name:           containerd
-Release:        3
+Release:        1
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
-Source0:        https://github.com/containerd/containerd/archive/v1.6.20.zip
+Source0:        https://github.com/containerd/containerd/archive/v1.6.21.zip
 Source1:        patch.tar.gz
 Source2:        apply-patch
 Source3:        series.conf
@@ -67,6 +67,12 @@ install -D -p -m 0644 %{S:7} %{buildroot}%{_sysconfdir}/containerd/config.toml
 %exclude %{_bindir}/containerd-stress
 
 %changelog
+* Fri July 21 2023 vegbir<yangjiaqi16@huawei.com> - 1.6.21-1
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:upgrade to contained 1.6.21
+
 * Mon May 15 2023 zhangzhihui<zhangzhihui@xfusion.com> - 1.6.20-3
 - Type:bugfix
 - ID:NA
