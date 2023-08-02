@@ -7,11 +7,11 @@
 
 set -ex
 
-pkg=containerd-1.6.21
+pkg=containerd-1.6.22
 cwd=$PWD
 src=$cwd/$pkg
 
-unzip v1.6.21.zip
+unzip v1.6.22.zip
 if [[ ! -d patch ]]; then
     tar zxf patch.tar.gz
 fi
@@ -35,4 +35,4 @@ done <"$series"
 cd $cwd
 cp -rf $src/* .
 mv $src/.git $cwd/.git
-rm -rf containerd-1.6.21
+rm -rf containerd-1.6.22
