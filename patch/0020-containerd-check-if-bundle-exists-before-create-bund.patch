@@ -1,0 +1,66 @@
+From 9d29bd060a8a0fa5783d6bbaff6ce57326b2c065 Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Fri, 6 Nov 2020 10:19:26 +0800
+Subject: [PATCH] containerd: check if bundle exists before create bundle
+
+reason: If container starts following tightly the last stop, bundle
+directory may be deleted by the not yet completed stop, which may cause
+container start fail. So we add bundle check during start to avoid this,
+if bundle exists, wait for it to clean up.
+
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ runtime/v1/linux/bundle.go | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/v1/linux/bundle.go b/runtime/v1/linux/bundle.go
+index b1830d0..d01d41b 100644
+--- a/runtime/v1/linux/bundle.go
++++ b/runtime/v1/linux/bundle.go
+@@ -26,12 +26,14 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
++	"time"
+ 
+ 	"github.com/containerd/containerd/events/exchange"
+ 	"github.com/containerd/containerd/runtime/linux/runctypes"
+ 	"github.com/containerd/containerd/runtime/v1/shim"
+ 	"github.com/containerd/containerd/runtime/v1/shim/client"
+ 	"github.com/opencontainers/runtime-spec/specs-go"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // loadBundle loads an existing bundle from disk
+@@ -49,6 +51,19 @@ func newBundle(id, path, workDir string, spec []byte) (b *bundle, err error) {
+ 		return nil, err
+ 	}
+ 	path = filepath.Join(path, id)
++	workDir = filepath.Join(workDir, id)
++
++	for waitTime := 10 * time.Millisecond; ; waitTime *= 2 {
++		if _, err = os.Stat(workDir); err != nil {
++			break
++		}
++		logrus.Debugf("bundle-check: wait time %v", waitTime)
++		if waitTime > 2*time.Second {
++			logrus.Warnf("bundle-check: waiting cleanup bundle timeout, start anyway")
++			break
++		}
++		time.Sleep(waitTime)
++	}
+ 	if err := os.Mkdir(path, 0700); err != nil {
+ 		return nil, err
+ 	}
+@@ -60,7 +75,7 @@ func newBundle(id, path, workDir string, spec []byte) (b *bundle, err error) {
+ 	if err := prepareBundleDirectoryPermissions(path, spec); err != nil {
+ 		return nil, err
+ 	}
+-	workDir = filepath.Join(workDir, id)
++
+ 	if err := os.MkdirAll(workDir, 0711); err != nil {
+ 		return nil, err
+ 	}
+-- 
+2.33.0
+

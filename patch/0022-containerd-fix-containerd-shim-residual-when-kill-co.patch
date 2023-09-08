@@ -1,0 +1,45 @@
+From 246fa098a96a14321da47d5df491ead7800b9c92 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Fri, 19 Feb 2021 16:37:48 +0800
+Subject: [PATCH] containerd: fix containerd-shim residual when kill containerd
+ during starting container
+
+after shim process started, containerd will write shim socket address
+to address file, but if containerd is killed before write file, new
+containerd process could not get shim socket address, and will not
+kill it even if that shim could not work.
+so we write address file ahead of starting shim process.
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ runtime/v1/shim/client/client.go | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/runtime/v1/shim/client/client.go b/runtime/v1/shim/client/client.go
+index fa145c8..64a9aa2 100644
+--- a/runtime/v1/shim/client/client.go
++++ b/runtime/v1/shim/client/client.go
+@@ -93,6 +93,10 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
+ 		go io.Copy(stdoutCopy, stdoutLog)
+ 		go io.Copy(stderrCopy, stderrLog)
+ 
++		if err := writeFile(filepath.Join(config.Path, "address"), address); err != nil {
++			return nil, nil, err
++		}
++
+ 		cmd, err := newCommand(binary, daemonAddress, debug, config, f, stdoutLog, stderrLog)
+ 		if err != nil {
+ 			return nil, nil, err
+@@ -123,9 +127,6 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
+ 			"debug":   debug,
+ 		}).Infof("shim %s started", binary)
+ 
+-		if err := writeFile(filepath.Join(config.Path, "address"), address); err != nil {
+-			return nil, nil, err
+-		}
+ 		if err := writeFile(filepath.Join(config.Path, "shim.pid"), strconv.Itoa(cmd.Process.Pid)); err != nil {
+ 			return nil, nil, err
+ 		}
+-- 
+2.33.0
+

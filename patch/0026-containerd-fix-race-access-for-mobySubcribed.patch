@@ -1,0 +1,62 @@
+From 23c28aca8fbb161c69836b76d03a826fb339421b Mon Sep 17 00:00:00 2001
+From: zhongjiawei <zhongjiawei1@huawei.com>
+Date: Thu, 10 Aug 2023 20:49:32 +0800
+Subject: [PATCH] containerd:fix race access for mobySubcribed
+
+Signed-off-by: zhongjiawei <zhongjiawei1@huawei.com>
+---
+ events/exchange/exchange.go      | 7 ++++---
+ runtime/v1/shim/client/client.go | 3 +++
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/events/exchange/exchange.go b/events/exchange/exchange.go
+index 162e7be..0c2337f 100644
+--- a/events/exchange/exchange.go
++++ b/events/exchange/exchange.go
+@@ -20,6 +20,7 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"strings"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/containerd/containerd/errdefs"
+@@ -49,10 +50,10 @@ func NewExchange() *Exchange {
+ var _ events.Publisher = &Exchange{}
+ var _ events.Forwarder = &Exchange{}
+ var _ events.Subscriber = &Exchange{}
+-var mobySubcribed = false
++var mobySubcribed = int32(0)
+ 
+ func MobySubscribed() bool {
+-	return mobySubcribed
++	return atomic.LoadInt32(&mobySubcribed) == 1
+ }
+ 
+ // Forward accepts an envelope to be directly distributed on the exchange.
+@@ -170,7 +171,7 @@ func (e *Exchange) Subscribe(ctx context.Context, fs ...string) (ch <-chan *even
+ 	for _, s := range fs {
+ 		if !MobySubscribed() && s == "namespace==moby,topic~=|^/tasks/|" {
+ 			queue.Namespace = "moby"
+-			mobySubcribed = true
++			atomic.StoreInt32(&mobySubcribed, 1)
+ 		}
+ 	}
+ 
+diff --git a/runtime/v1/shim/client/client.go b/runtime/v1/shim/client/client.go
+index 64a9aa2..965a5cf 100644
+--- a/runtime/v1/shim/client/client.go
++++ b/runtime/v1/shim/client/client.go
+@@ -70,6 +70,9 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
+ 
+ 		f, err := socket.File()
+ 		if err != nil {
++			if err1 := RemoveSocket(address); err1 != nil {
++				logrus.Warningf("failed to remove socket %s: %w", address, err1)
++			}
+ 			return nil, nil, fmt.Errorf("failed to get fd for socket %s: %w", address, err)
+ 		}
+ 		defer f.Close()
+-- 
+2.33.0
+

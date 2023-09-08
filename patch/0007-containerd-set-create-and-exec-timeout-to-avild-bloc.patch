@@ -1,0 +1,195 @@
+From 907578c6d8421d340c353ad27503bbfdb7f422d1 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni@huawei.com>
+Date: Fri, 15 Feb 2019 06:00:52 +0800
+Subject: [PATCH] containerd:set create and exec timeout to avild block when
+ command failed
+
+---
+ cmd/containerd-shim/main_unix.go              |  2 +-
+ sys/reaper/reaper_unix.go                     | 21 +++++++-
+ .../github.com/containerd/go-runc/monitor.go  |  6 +++
+ vendor/github.com/containerd/go-runc/runc.go  | 54 +++++++++++++++++--
+ 4 files changed, 77 insertions(+), 6 deletions(-)
+
+diff --git a/cmd/containerd-shim/main_unix.go b/cmd/containerd-shim/main_unix.go
+index 6c3326f..8dfcd90 100644
+--- a/cmd/containerd-shim/main_unix.go
++++ b/cmd/containerd-shim/main_unix.go
+@@ -312,7 +312,7 @@ func (l *remoteEventsPublisher) doPublish(ctx context.Context, topic string, eve
+ 	if err != nil {
+ 		return err
+ 	}
+-	status, err := reaper.Default.WaitTimeout(cmd, c, 30*time.Second)
++	status, err := reaper.Default.WaitTimeout(cmd, c, 30)
+ 	if err != nil {
+ 		return fmt.Errorf("failed to publish event: %s: %w", b.String(), err)
+ 	}
+diff --git a/sys/reaper/reaper_unix.go b/sys/reaper/reaper_unix.go
+index 6c4f13b..bf42d21 100644
+--- a/sys/reaper/reaper_unix.go
++++ b/sys/reaper/reaper_unix.go
+@@ -22,6 +22,10 @@ package reaper
+ import (
+ 	"errors"
+ 	"fmt"
++	"io/ioutil"
++	"path/filepath"
++	"strconv"
++	"strings"
+ 	"sync"
+ 	"syscall"
+ 	"time"
+@@ -119,7 +123,8 @@ func (m *Monitor) Wait(c *exec.Cmd, ec chan runc.Exit) (int, error) {
+ }
+ 
+ // WaitTimeout is used to skip the blocked command and kill the left process.
+-func (m *Monitor) WaitTimeout(c *exec.Cmd, ec chan runc.Exit, timeout time.Duration) (int, error) {
++func (m *Monitor) WaitTimeout(c *exec.Cmd, ec chan runc.Exit, sec int64) (int, error) {
++	timeout := time.Duration(sec) * time.Second
+ 	type exitStatusWrapper struct {
+ 		status int
+ 		err    error
+@@ -281,3 +286,17 @@ func exitStatus(status unix.WaitStatus) int {
+ 	}
+ 	return status.ExitStatus()
+ }
++
++func SameProcess(cmd *exec.Cmd, pid int) bool {
++	bytes, err := ioutil.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
++	if err != nil {
++		return false
++	}
++	for i := range bytes {
++		if bytes[i] == 0 {
++			bytes[i] = 32
++		}
++	}
++	cmdline := string(bytes)
++	return strings.EqualFold(cmdline, strings.Join(cmd.Args, " ")+" ")
++}
+diff --git a/vendor/github.com/containerd/go-runc/monitor.go b/vendor/github.com/containerd/go-runc/monitor.go
+index ff06a3f..9756491 100644
+--- a/vendor/github.com/containerd/go-runc/monitor.go
++++ b/vendor/github.com/containerd/go-runc/monitor.go
+@@ -40,6 +40,7 @@ type Exit struct {
+ type ProcessMonitor interface {
+ 	Start(*exec.Cmd) (chan Exit, error)
+ 	Wait(*exec.Cmd, chan Exit) (int, error)
++	WaitTimeout(*exec.Cmd, chan Exit, int64) (int, error)
+ }
+ 
+ type defaultMonitor struct {
+@@ -74,3 +75,8 @@ func (m *defaultMonitor) Wait(c *exec.Cmd, ec chan Exit) (int, error) {
+ 	e := <-ec
+ 	return e.Status, nil
+ }
++
++func (m *defaultMonitor) WaitTimeout(c *exec.Cmd, ec chan Exit, sec int64) (int, error) {
++	e := <-ec
++	return e.Status, nil
++}
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index 0feedeb..15fc8e1 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -54,8 +54,22 @@ const (
+ 	Text Format = "text"
+ 	// DefaultCommand is the default command for Runc
+ 	DefaultCommand = "runc"
++	execTimeout    = 30
+ )
+ 
++var (
++	createTimeout int64 = 120
++)
++
++func init() {
++	runtimeTimeout, err := convertTime(os.Getenv("DOCKER_RUNTIME_START_TIMEOUT"))
++	if err != nil {
++		logrus.Warnf("init error, wrong runtimeTimeout format: %v", err)
++	} else {
++		createTimeout = runtimeTimeout
++	}
++}
++
+ // List returns all containers created inside the provided runc root directory
+ func (r *Runc) List(context context.Context) ([]*Container, error) {
+ 	data, err := cmdOutput(r.command(context, "list", "--format=json"), false, nil)
+@@ -151,7 +165,7 @@ func (r *Runc) Create(context context.Context, id, bundle string, opts *CreateOp
+ 	cmd.ExtraFiles = opts.ExtraFiles
+ 
+ 	if cmd.Stdout == nil && cmd.Stderr == nil {
+-		data, err := cmdOutput(cmd, true, nil)
++		data, err := cmdOutputTimeout(cmd, true, nil, createTimeout)
+ 		defer putBuf(data)
+ 		if err != nil {
+ 			return fmt.Errorf("%s: %s", err, data.String())
+@@ -169,7 +183,7 @@ func (r *Runc) Create(context context.Context, id, bundle string, opts *CreateOp
+ 			}
+ 		}
+ 	}
+-	status, err := Monitor.Wait(cmd, ec)
++	status, err := Monitor.WaitTimeout(cmd, ec, createTimeout)
+ 	if err == nil && status != 0 {
+ 		err = fmt.Errorf("%s did not terminate successfully: %w", cmd.Args[0], &ExitError{status})
+ 	}
+@@ -235,7 +249,7 @@ func (r *Runc) Exec(context context.Context, id string, spec specs.Process, opts
+ 		opts.Set(cmd)
+ 	}
+ 	if cmd.Stdout == nil && cmd.Stderr == nil {
+-		data, err := cmdOutput(cmd, true, opts.Started)
++		data, err := cmdOutputTimeout(cmd, true, opts.Started, createTimeout)
+ 		defer putBuf(data)
+ 		if err != nil {
+ 			return fmt.Errorf("%w: %s", err, data.String())
+@@ -256,7 +270,7 @@ func (r *Runc) Exec(context context.Context, id string, spec specs.Process, opts
+ 			}
+ 		}
+ 	}
+-	status, err := Monitor.Wait(cmd, ec)
++	status, err := Monitor.WaitTimeout(cmd, ec, execTimeout)
+ 	if err == nil && status != 0 {
+ 		err = fmt.Errorf("%s did not terminate successfully: %w", cmd.Args[0], &ExitError{status})
+ 	}
+@@ -742,6 +756,38 @@ func cmdOutput(cmd *exec.Cmd, combined bool, started chan<- int) (*bytes.Buffer,
+ 	return b, err
+ }
+ 
++func cmdOutputTimeout(cmd *exec.Cmd, combined bool, started chan<- int, timeout int64) (*bytes.Buffer, error) {
++	b := getBuf()
++	defer putBuf(b)
++
++	cmd.Stdout = b
++	if combined {
++		cmd.Stderr = b
++	}
++	ec, err := Monitor.Start(cmd)
++	if err != nil {
++		return nil, err
++	}
++	if started != nil {
++		started <- cmd.Process.Pid
++	}
++
++	status, err := Monitor.WaitTimeout(cmd, ec, timeout)
++	if err == nil && status != 0 {
++		err = fmt.Errorf("%s did not terminate sucessfully", cmd.Args[0])
++	}
++
++	return b, err
++}
++
++func convertTime(timeout string) (int64, error) {
++	timeDura, err := time.ParseDuration(timeout)
++	if err != nil {
++		return 0, err
++	}
++	return timeDura.Nanoseconds() / 1e9, nil
++}
++
+ type ExitError struct {
+ 	Status int
+ }
+-- 
+2.33.0
+

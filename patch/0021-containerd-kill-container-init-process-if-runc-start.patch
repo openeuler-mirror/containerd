@@ -1,0 +1,104 @@
+From 4cb4c0ce6500539b4c6e4bf83a4ed1510d698338 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Mon, 1 Feb 2021 19:36:53 +0800
+Subject: [PATCH] containerd: kill container init process if runc start returns
+ error
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ pkg/process/init.go |  4 +++
+ utils/utils.go      | 60 +++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 64 insertions(+)
+ create mode 100644 utils/utils.go
+
+diff --git a/pkg/process/init.go b/pkg/process/init.go
+index 26aebdc..d373851 100644
+--- a/pkg/process/init.go
++++ b/pkg/process/init.go
+@@ -34,6 +34,7 @@ import (
+ 	"github.com/containerd/containerd/log"
+ 	"github.com/containerd/containerd/mount"
+ 	"github.com/containerd/containerd/pkg/stdio"
++	"github.com/containerd/containerd/utils"
+ 	"github.com/containerd/fifo"
+ 	runc "github.com/containerd/go-runc"
+ 	google_protobuf "github.com/gogo/protobuf/types"
+@@ -262,6 +263,9 @@ func (p *Init) Start(ctx context.Context) error {
+ 
+ func (p *Init) start(ctx context.Context) error {
+ 	err := p.runtime.Start(ctx, p.id)
++	if err != nil {
++		utils.KillInitProcess(p.id, p.pid)
++	}
+ 	return p.runtimeError(err, "OCI runtime start failed")
+ }
+ 
+diff --git a/utils/utils.go b/utils/utils.go
+new file mode 100644
+index 0000000..772b15d
+--- /dev/null
++++ b/utils/utils.go
+@@ -0,0 +1,60 @@
++/*
++Use of this source code is governed by Apache-2.0
++license that can be found in the LICENSE file.
++Description: common functions
++Author: Danni Xia
++Create: 2021-01-30
++*/
++
++package utils
++
++import (
++	"encoding/json"
++	"io/ioutil"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"syscall"
++
++	"github.com/sirupsen/logrus"
++)
++
++type baseState struct {
++	InitProcessStartTime string `json:"init_process_start"`
++}
++
++func KillInitProcess(cid string, pid int) {
++	if IsInitProcess(cid, pid) {
++		syscall.Kill(pid, syscall.SIGKILL)
++	}
++}
++
++func IsInitProcess(cid string, pid int) bool {
++	stateBytes, err1 := ioutil.ReadFile(filepath.Join("/var/run/docker/runtime-runc/moby", cid, "state.json"))
++	statBytes, err2 := ioutil.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
++	if err1 != nil || err2 != nil {
++		return true
++	}
++
++	s := strings.Split(string(statBytes), ")")
++	if len(s) < 1 {
++		return true
++	}
++
++	statFields := strings.Split(strings.TrimSpace(s[len(s)-1]), " ")
++	if len(statFields) < 20 {
++		return true
++	}
++
++	var baseState baseState
++	if err := json.Unmarshal(stateBytes, &baseState); err != nil {
++		return true
++	}
++
++	if baseState.InitProcessStartTime == statFields[19] {
++		return true
++	}
++
++	logrus.Warnf("process(pid:%d, start time:%s) is not container %s init process", pid, statFields[19], cid)
++	return false
++}
+-- 
+2.33.0
+

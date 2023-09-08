@@ -1,0 +1,63 @@
+From 94b1e21950631130c86be5572e8a89bd27d373bb Mon Sep 17 00:00:00 2001
+From: xueshaojia <xueshaojia@huawei.com>
+Date: Thu, 14 Feb 2019 10:48:14 +0800
+Subject: [PATCH] containerd: check shim alive when containerd is restarted
+
+reason: When containerd is restarted, it will load all tasks.In some cases, the
+    containerd-shim is killed and the sock file will exist for a while.
+    Containerd should check the containerd-shim is available using the sock file.
+    If the containerd-shim server not responses, do r.cleanupAfterDeadShim
+
+If containerd-shim and containerd process is killed, container will exit,
+however containerd exit event which generates when containerd restart to reload
+tasks can not publish to dockerd, because at the time of loading tasks the connection
+between dockerd and containerd isn't established.
+
+So we add this unpublish exit event to file and resend this event after grpc connection
+is established.
+---
+ runtime/v1/linux/runtime.go | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index a6efd81..544b692 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -416,6 +416,9 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 				"id":        id,
+ 				"namespace": ns,
+ 			}).Error("connecting to shim")
++			if !events.ExitPending(ns, id, uint32(pid)) {
++				events.ExitAddFile(ns, events.ExitFile(id, uint32(pid), uint32(events.ExitStatusDefault)), "cleanup dirty task")
++			}
+ 			err := r.cleanupAfterDeadShim(ctx, bundle, ns, id)
+ 			if err != nil {
+ 				log.G(ctx).WithError(err).WithField("bundle", bundle.path).
+@@ -423,6 +426,24 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 			}
+ 			continue
+ 		}
++		ctxContact, cancel := context.WithTimeout(ctx, 5*time.Second)
++		defer cancel()
++		alive, err := s.IsAlive(ctxContact)
++		if !alive {
++			log.G(ctx).WithError(err).WithFields(logrus.Fields{
++				"id":        id,
++				"namespace": ns,
++			}).Error("contacting to shim")
++			if !events.ExitPending(ns, id, uint32(pid)) {
++				events.ExitAddFile(ns, events.ExitFile(id, uint32(pid), uint32(events.ExitStatusDefault)), "cleanup dirty task")
++			}
++			err := r.cleanupAfterDeadShim(ctx, bundle, ns, id, pid)
++			if err != nil {
++				log.G(ctx).WithError(err).WithField("bundle", bundle.path).
++					Error("cleaning up after dead shim")
++			}
++			continue
++		}
+ 
+ 		logDirPath := filepath.Join(r.root, ns, id)
+ 
+-- 
+2.33.0
+

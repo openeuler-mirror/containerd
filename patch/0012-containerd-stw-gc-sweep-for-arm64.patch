@@ -1,0 +1,53 @@
+From bd5ef07292289252531b73c371e95db1fc0a45c4 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Fri, 18 Oct 2019 14:49:47 +0800
+Subject: [PATCH] containerd: stw gc sweep for arm64
+
+Change-Id: I855c13a21c72bf0e91563db7c11e1348a1a78d55
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ cmd/containerd-shim/main_unix.go | 5 -----
+ runtime/v1/shim/client/client.go | 4 ++++
+ 2 files changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/cmd/containerd-shim/main_unix.go b/cmd/containerd-shim/main_unix.go
+index 8dfcd90..8a05d70 100644
+--- a/cmd/containerd-shim/main_unix.go
++++ b/cmd/containerd-shim/main_unix.go
+@@ -87,11 +87,6 @@ func init() {
+ 
+ func main() {
+ 	debug.SetGCPercent(40)
+-	go func() {
+-		for range time.Tick(30 * time.Second) {
+-			debug.FreeOSMemory()
+-		}
+-	}()
+ 
+ 	if debugFlag {
+ 		logrus.SetLevel(logrus.DebugLevel)
+diff --git a/runtime/v1/shim/client/client.go b/runtime/v1/shim/client/client.go
+index 6e5eae5..fa145c8 100644
+--- a/runtime/v1/shim/client/client.go
++++ b/runtime/v1/shim/client/client.go
+@@ -27,6 +27,7 @@ import (
+ 	"net"
+ 	"os"
+ 	"path/filepath"
++	"runtime"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -218,6 +219,9 @@ func newCommand(binary, daemonAddress string, debug bool, config shim.Config, so
+ 	cmd.SysProcAttr = getSysProcAttr()
+ 	cmd.ExtraFiles = append(cmd.ExtraFiles, socket)
+ 	cmd.Env = append(os.Environ(), "GOMAXPROCS=2")
++	if runtime.GOARCH == "arm64" {
++		cmd.Env = append(cmd.Env, "GODEBUG=gcstoptheworld=2")
++	}
+ 	cmd.Stdout = stdout
+ 	cmd.Stderr = stderr
+ 	return cmd, nil
+-- 
+2.33.0
+
