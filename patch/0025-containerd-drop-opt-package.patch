@@ -1,0 +1,25 @@
+From 4fedcedb0c8cc293ee45959d64d68377b720b8fa Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni1@huawei.com>
+Date: Thu, 5 Aug 2021 15:24:21 +0800
+Subject: [PATCH] containerd: drop opt package
+
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ cmd/containerd/builtins.go | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/cmd/containerd/builtins.go b/cmd/containerd/builtins.go
+index 8c6f1fe..5c67768 100644
+--- a/cmd/containerd/builtins.go
++++ b/cmd/containerd/builtins.go
+@@ -32,7 +32,6 @@ import (
+ 	_ "github.com/containerd/containerd/services/introspection"
+ 	_ "github.com/containerd/containerd/services/leases"
+ 	_ "github.com/containerd/containerd/services/namespaces"
+-	_ "github.com/containerd/containerd/services/opt"
+ 	_ "github.com/containerd/containerd/services/snapshots"
+ 	_ "github.com/containerd/containerd/services/tasks"
+ 	_ "github.com/containerd/containerd/services/version"
+-- 
+2.33.0
+

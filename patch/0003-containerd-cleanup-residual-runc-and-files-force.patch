@@ -1,0 +1,49 @@
+From 05a237b82a23c5750d0b463f60504fea7a227493 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Mon, 11 Feb 2019 17:40:31 +0800
+Subject: [PATCH] containerd: cleanup residual runc and files force
+
+reason:kill -9 shim will generate residual runc files, cleanup runc files using
+runc delete before create. And if container root path already exists
+when call runtime.Create, we try to call runtime.Delete to cleanup it.
+But in case runtime.Delete failed, root path will still exists
+which causes Create failed with error "container with id exists".
+So remove path directly if Delete failed.
+
+Signed-off-by: jingrui <jingrui@huawei.com>
+Signed-off-by: xiadanni <xiadanni1@huawei.com>
+---
+ vendor/github.com/containerd/go-runc/runc.go | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index f5f03ae..0feedeb 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -31,6 +31,8 @@ import (
+ 	"strings"
+ 	"time"
+ 
++	"github.com/sirupsen/logrus"
++
+ 	specs "github.com/opencontainers/runtime-spec/specs-go"
+ )
+ 
+@@ -126,6 +128,14 @@ func (o *CreateOpts) args() (out []string, err error) {
+ 
+ // Create creates a new container and returns its pid if it was created successfully
+ func (r *Runc) Create(context context.Context, id, bundle string, opts *CreateOpts) error {
++	if _, err := os.Stat(filepath.Join(r.Root, id)); err == nil {
++		logrus.Warnf("cleanup residue runtime with bundle %s root=%s", bundle, r.Root)
++		if dErr := r.Delete(context, id, &DeleteOpts{Force: true}); dErr != nil {
++			logrus.Errorf("runtime force delete return err: %v, remove container root err: %v",
++				dErr, os.RemoveAll(filepath.Join(r.Root, id)))
++		}
++	}
++
+ 	args := []string{"create", "--bundle", bundle}
+ 	if opts != nil {
+ 		oargs, err := opts.args()
+-- 
+2.33.0
+

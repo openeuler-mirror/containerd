@@ -1,0 +1,156 @@
+From fab5e09d4bdcce7748e036a8820078d826d00d49 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Sat, 20 Feb 2021 09:06:22 +0800
+Subject: [PATCH] containerd: fix exec event missing due to pid reuse
+
+When many exec request exit at nearly sametime, the Exit can match with
+wrong process and return directly, the event for right process will lost
+in this case.
+
+time="2021-02-19T21:10:12.250841280+08:00" level=info msg=event Pid=11623 containerID=a32a1b7923db55ebdc7483e2b9cd986e5efc750b989ad3507eb866835e8e37f4 execID=0b412ecaed98f9ea71168599a9363b8aa3b047187eadaa74973bb6c63a66118d module=libcontainerd namespace=moby topic=/tasks/exec-started
+time="2021-02-19T21:10:12+08:00" level=info msg="try publish event(1) /tasks/exit &TaskExit{ContainerID:a32a1b7923db55ebdc7483e2b9cd986e5efc750b989ad3507eb866835e8e37f4,ID:0b412ecaed98f9ea71168599a9363b8aa3b047187eadaa74973bb6c63a66118d,Pid:11623,ExitStatus:0,ExitedAt:2021-02-19 21:10:12.27697416 +0800 CST m=+1893.164673481,} <nil>"
+time="2021-02-19T21:11:02.944643980+08:00" level=debug msg="starting exec command 64cd335311e9b3c1c11e7360a374e3218efeb02e6578d7bc0811bad3f1820e16 in container a32a1b7923db55ebdc7483e2b9cd986e5efc750b989ad3507eb866835e8e37f4"
+time="2021-02-19T21:11:06.201162360+08:00" level=debug msg="event published" ns=moby topic="/tasks/exec-started" type=containerd.events.TaskExecStarted
+time="2021-02-19T21:11:57.961615320+08:00" level=warning msg="Ignoring Exit Event, no such exec command found" container=a32a1b7923db55ebdc7483e2b9cd986e5efc750b989ad3507eb866835e8e37f4 exec-id=0b412ecaed98f9ea71168599a9363b8aa3b047187eadaa74973bb6c63a66118d exec-pid=11623
+
+From logs above, execID=0b412ecae with Pid=11623 exit and event
+published, but new exec execID=64cd335 command reuse the Pid, but Exit
+event still match previous execID=0b412ecae. so exit event for
+execID=64cd335 will lost.
+
+Change-Id: If591a282a1cc0305758130a936ee8b92c88acc6c
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ pkg/process/exec.go        |  4 ++
+ runtime/v1/shim/service.go | 92 +++++++++++++++++++-------------------
+ 2 files changed, 50 insertions(+), 46 deletions(-)
+
+diff --git a/pkg/process/exec.go b/pkg/process/exec.go
+index dcd7592..9916042 100644
+--- a/pkg/process/exec.go
++++ b/pkg/process/exec.go
+@@ -90,6 +90,10 @@ func (e *execProcess) SetExited(status int) {
+ 	defer e.mu.Unlock()
+ 
+ 	e.execState.SetExited(status)
++
++	e.pid.Lock()
++	e.pid.pid = -1
++	e.pid.Unlock()
+ }
+ 
+ func (e *execProcess) setExited(status int) {
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index 166b866..dd1a935 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -548,60 +548,60 @@ func (s *Service) processExits() {
+ }
+ 
+ func (s *Service) checkProcesses(e runc.Exit) {
+-	var p process.Process
+ 	s.mu.Lock()
+-	for _, proc := range s.processes {
+-		if proc.Pid() == e.Pid {
+-			p = proc
+-			break
+-		}
+-	}
+-	s.mu.Unlock()
+-	if p == nil {
+-		log.G(s.context).Debugf("process with id:%d wasn't found", e.Pid)
+-		return
+-	}
++	defer s.mu.Unlock()
++
++	match := 0
+ 	shouldKillAll, bundleSpec := shouldKillAllOnExit(s.context, s.bundle)
+-	if ip, ok := p.(*process.Init); ok {
+-		ns := filepath.Base(filepath.Dir(ip.Bundle))
+-		events.ExitAddFile(ns, events.ExitFile(s.id, uint32(e.Pid), uint32(e.Status)), "init exited")
+-		events.InitExitWrite(ip.Bundle, e.Pid)
+-		go func() {
+-			t := 30
+-			defer func() {
+-				time.Sleep(time.Duration(t) * time.Second)
+-				os.Exit(0)
+-			}()
+-			if bundleSpec.Hooks == nil {
+-				return
++
++	for _, p := range s.processes {
++		if p.Pid() == e.Pid {
++			match++
++			if match > 1 {
++				logrus.Warnf("exit for pid=%d match %d processes", e.Pid, match)
+ 			}
+-			postStopHooks := bundleSpec.Hooks.Poststop
+-			for _, postStopHook := range postStopHooks {
+-				hookTimeout := postStopHook.Timeout
+-				if hookTimeout == nil {
+-					t += 120
+-				} else {
+-					t += *hookTimeout
++			if ip, ok := p.(*process.Init); ok {
++				ns := filepath.Base(filepath.Dir(ip.Bundle))
++				events.ExitAddFile(ns, events.ExitFile(s.id, uint32(e.Pid), uint32(e.Status)), "init exited")
++				events.InitExitWrite(ip.Bundle, e.Pid)
++				go func() {
++					t := 30
++					defer func() {
++						time.Sleep(time.Duration(t) * time.Second)
++						os.Exit(0)
++					}()
++					if bundleSpec.Hooks == nil {
++						return
++					}
++					postStopHooks := bundleSpec.Hooks.Poststop
++					for _, postStopHook := range postStopHooks {
++						hookTimeout := postStopHook.Timeout
++						if hookTimeout == nil {
++							t += 120
++						} else {
++							t += *hookTimeout
++						}
++					}
++				}()
++				// Ensure all children are killed
++				if shouldKillAll {
++					if err := ip.KillAll(s.context); err != nil {
++						log.G(s.context).WithError(err).WithField("id", ip.ID()).
++							Error("failed to kill init's children")
++					}
+ 				}
+ 			}
+-		}()
+-		// Ensure all children are killed
+-		if shouldKillAll {
+-			if err := ip.KillAll(s.context); err != nil {
+-				log.G(s.context).WithError(err).WithField("id", ip.ID()).
+-					Error("failed to kill init's children")
++
++			p.SetExited(e.Status)
++			s.events <- &eventstypes.TaskExit{
++				ContainerID: s.id,
++				ID:          p.ID(),
++				Pid:         uint32(e.Pid),
++				ExitStatus:  uint32(e.Status),
++				ExitedAt:    p.ExitedAt(),
+ 			}
+ 		}
+ 	}
+-
+-	p.SetExited(e.Status)
+-	s.events <- &eventstypes.TaskExit{
+-		ContainerID: s.id,
+-		ID:          p.ID(),
+-		Pid:         uint32(e.Pid),
+-		ExitStatus:  uint32(e.Status),
+-		ExitedAt:    p.ExitedAt(),
+-	}
+ }
+ 
+ func shouldKillAllOnExit(ctx context.Context, bundlePath string) (bool, specs.Spec) {
+-- 
+2.33.0
+

@@ -1,0 +1,107 @@
+From f696193bd86e3656e328e6f46feb0ad5366ec017 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Sat, 23 Feb 2019 15:51:24 +0800
+Subject: [PATCH] containerd: skip load task in creating and optimize init.exit
+ record
+
+load task in creating will stuck containerd restore process.
+
+Change-Id: I2f8b77a88d78597ef2be5122708fc8ab16fad956
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ pkg/process/utils.go        |  2 --
+ runtime/v1/linux/runtime.go |  7 +++----
+ runtime/v1/shim/service.go  | 10 ++++++++--
+ 3 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/pkg/process/utils.go b/pkg/process/utils.go
+index 5ff04ed..afada02 100644
+--- a/pkg/process/utils.go
++++ b/pkg/process/utils.go
+@@ -41,8 +41,6 @@ const (
+ 	RuncRoot = "/run/containerd/runc"
+ 	// InitPidFile name of the file that contains the init pid
+ 	InitPidFile = "init.pid"
+-
+-	InitExit = "init.exit"
+ )
+ 
+ // safePid is a thread safe wrapper for pid.
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index 544b692..421922e 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -386,7 +386,6 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 			continue
+ 		}
+ 		id := path.Name()
+-		log.G(ctx).Infof("load-task %s", id)
+ 		// skip hidden directories
+ 		if len(id) > 0 && id[0] == '.' {
+ 			continue
+@@ -398,6 +397,7 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 		)
+ 		ctx = namespaces.WithNamespace(ctx, ns)
+ 		pid, _ := runc.ReadPidFile(filepath.Join(bundle.path, process.InitPidFile))
++		log.G(ctx).Infof("load-task %s/%s/%s Pid=%d", r.state, ns, id, pid)
+ 		shimExit := make(chan struct{})
+ 		s, err := bundle.NewShimClient(ctx, ns, ShimConnect(r.config, func() {
+ 			defer close(shimExit)
+@@ -495,11 +495,10 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 			continue
+ 		}
+ 		if pid <= 0 {
+-			_, err := t.DeleteForce(ctx, 0)
+-			log.G(ctx).Warnf("delete force %s Pid=%d error=%v", id, pid, err)
++			log.G(ctx).Warnf("skip load task in creating %s", id)
+ 			continue
+ 		}
+-		if _, err := os.Stat(filepath.Join(bundle.path, process.InitExit)); err == nil {
++		if events.InitExitExist(bundle.path) {
+ 			if !events.ExitPending(ns, t.id, uint32(pid)) {
+ 				events.ExitAddFile(ns, events.ExitFile(t.id, uint32(pid), uint32(events.ExitStatusDefault)), "cleanup dirty task")
+ 			}
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index b00ed9c..32431a4 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -23,10 +23,10 @@ import (
+ 	"context"
+ 	"encoding/json"
+ 	"fmt"
+-	"io/ioutil"
+ 	"os"
+ 	"path/filepath"
+ 	"sync"
++	"time"
+ 
+ 	"github.com/containerd/console"
+ 	eventstypes "github.com/containerd/containerd/api/events"
+@@ -148,9 +148,15 @@ func (s *Service) Create(ctx context.Context, r *shimapi.CreateTaskRequest) (_ *
+ 	}
+ 	defer func() {
+ 		if err != nil {
++			logrus.Errorf("create init %s failed error=%v", r.ID, err)
+ 			if err2 := mount.UnmountAll(rootfs, 0); err2 != nil {
+ 				log.G(ctx).WithError(err2).Warn("Failed to cleanup rootfs mount")
+ 			}
++			go func() {
++				time.Sleep(10 * time.Second)
++				os.Exit(0)
++			}()
++
+ 		}
+ 	}()
+ 	for _, rm := range mounts {
+@@ -523,7 +529,7 @@ func (s *Service) checkProcesses(e runc.Exit) {
+ 	if ip, ok := p.(*process.Init); ok {
+ 		ns := filepath.Base(filepath.Dir(ip.Bundle))
+ 		events.ExitAddFile(ns, events.ExitFile(s.id, uint32(e.Pid), uint32(e.Status)), "init exited")
+-		ioutil.WriteFile(filepath.Join(ip.Bundle, process.InitExit), []byte(fmt.Sprintf("%d", e.Pid)), 0600)
++		events.InitExitWrite(ip.Bundle, e.Pid)
+ 		// Ensure all children are killed
+ 		if shouldKillAllOnExit(s.context, s.bundle) {
+ 			if err := ip.KillAll(s.context); err != nil {
+-- 
+2.33.0
+

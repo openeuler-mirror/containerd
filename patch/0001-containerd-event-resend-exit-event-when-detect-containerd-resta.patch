@@ -1,0 +1,103 @@
+From 53122406aaf85c29cf70ca3b76a62580874ae9b5 Mon Sep 17 00:00:00 2001
+From: jingrui <jingrui@huawei.com>
+Date: Sun, 10 Feb 2019 18:40:59 +0800
+Subject: [PATCH] event: resend exit event when detect containerd restarted
+
+reason: fix docker stop no effect. And add init pid to start event log
+because DFX support start event with init pid
+
+Change-Id: I024b2f6a03d74fcbb5623c696212dcbfb624b285
+Signed-off-by: jingrui <jingrui@huawei.com>
+---
+ cmd/containerd-shim/main_unix.go | 38 +++++++++++++++++++++++++++++++-
+ runtime/v1/linux/task.go         |  2 ++
+ 2 files changed, 39 insertions(+), 1 deletion(-)
+
+diff --git a/cmd/containerd-shim/main_unix.go b/cmd/containerd-shim/main_unix.go
+index 024611b..942f354 100644
+--- a/cmd/containerd-shim/main_unix.go
++++ b/cmd/containerd-shim/main_unix.go
+@@ -25,11 +25,13 @@ import (
+ 	"flag"
+ 	"fmt"
+ 	"io"
++	"io/ioutil"
+ 	"net"
+ 	"os"
+ 	"os/signal"
+ 	"runtime"
+ 	"runtime/debug"
++	"strconv"
+ 	"strings"
+ 	"sync"
+ 	"syscall"
+@@ -284,7 +286,7 @@ type remoteEventsPublisher struct {
+ 	address string
+ }
+ 
+-func (l *remoteEventsPublisher) Publish(ctx context.Context, topic string, event events.Event) error {
++func (l *remoteEventsPublisher) doPublish(ctx context.Context, topic string, event events.Event) error {
+ 	ns, _ := namespaces.Namespace(ctx)
+ 	encoded, err := typeurl.MarshalAny(event)
+ 	if err != nil {
+@@ -316,3 +318,37 @@ func (l *remoteEventsPublisher) Publish(ctx context.Context, topic string, event
+ 	}
+ 	return nil
+ }
++
++func getContainerdPid() int {
++	pidFile := "/var/run/docker/containerd/containerd.pid"
++	data, err := ioutil.ReadFile(pidFile)
++	if err != nil {
++		return -1
++	}
++	pid, err := strconv.Atoi(string(data))
++	if err != nil {
++		return -1
++	}
++	return pid
++}
++
++func (l *remoteEventsPublisher) Publish(ctx context.Context, topic string, event events.Event) error {
++	old := getContainerdPid()
++	for i := 1; i <= 10; i++ {
++		err := l.doPublish(ctx, topic, event)
++		logrus.Infof("try publish event(%d) %s %v %v", i, topic, event, err)
++		if err == nil {
++			new := getContainerdPid()
++			if old == new {
++				return nil
++			}
++			logrus.Warnf("containerd pid %d changed to %d", old, new)
++			old = new
++		}
++		if i == 10 {
++			return err
++		}
++		time.Sleep(time.Duration(i) * time.Second)
++	}
++	return nil
++}
+diff --git a/runtime/v1/linux/task.go b/runtime/v1/linux/task.go
+index 3ac7839..5a8dab1 100644
+--- a/runtime/v1/linux/task.go
++++ b/runtime/v1/linux/task.go
+@@ -38,6 +38,7 @@ import (
+ 	"github.com/containerd/ttrpc"
+ 	"github.com/containerd/typeurl"
+ 	"github.com/gogo/protobuf/types"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ // Task on a linux based system
+@@ -148,6 +149,7 @@ func (t *Task) Start(ctx context.Context) error {
+ 		}
+ 		t.mu.Unlock()
+ 	}
++	logrus.Infof("publish event %s for container %s with pid %d", runtime.TaskStartEventTopic, t.id, t.pid)
+ 	t.events.Publish(ctx, runtime.TaskStartEventTopic, &eventstypes.TaskStart{
+ 		ContainerID: t.id,
+ 		Pid:         uint32(t.pid),
+-- 
+2.33.0
+

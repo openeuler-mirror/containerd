@@ -1,0 +1,36 @@
+From 648e59028cc546587e877784532cada50d62cfcb Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Mon, 23 Dec 2019 03:10:49 -0500
+Subject: [PATCH] containerd: wrap and process return errors
+
+reason: wrap and process return errors
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ sys/reaper/reaper_unix.go | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/sys/reaper/reaper_unix.go b/sys/reaper/reaper_unix.go
+index bf42d21..007e1d0 100644
+--- a/sys/reaper/reaper_unix.go
++++ b/sys/reaper/reaper_unix.go
+@@ -31,6 +31,7 @@ import (
+ 	"time"
+ 
+ 	runc "github.com/containerd/go-runc"
++	"github.com/sirupsen/logrus"
+ 	exec "golang.org/x/sys/execabs"
+ 	"golang.org/x/sys/unix"
+ )
+@@ -112,7 +113,7 @@ func (m *Monitor) Wait(c *exec.Cmd, ec chan runc.Exit) (int, error) {
+ 	for e := range ec {
+ 		if e.Pid == c.Process.Pid {
+ 			// make sure we flush all IO
+-			c.Wait()
++			logrus.Devour(c.Wait())
+ 			m.Unsubscribe(ec)
+ 			return e.Status, nil
+ 		}
+-- 
+2.33.0
+

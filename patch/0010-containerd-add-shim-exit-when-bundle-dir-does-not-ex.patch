@@ -1,0 +1,39 @@
+From a509386405646122da735e33e0b5e7f9d9e3aaae Mon Sep 17 00:00:00 2001
+From: xiadanni1 <xiadanni1@huawei.com>
+Date: Sat, 13 Jul 2019 06:32:54 +0800
+Subject: [PATCH] containerd:add shim exit when bundle dir does not exist
+
+reason: when bundle dir is deleted, containerd-shim should exit to avoid
+shim.sock is occupied when container restart next time.
+
+Change-Id: I956412598e17d15f25b91afe1cbb9e24463f04be
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ runtime/v1/shim/service.go | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index a3b4a8f..4e9dfee 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -149,6 +149,17 @@ func (s *Service) Create(ctx context.Context, r *shimapi.CreateTaskRequest) (_ *
+ 		Options:          r.Options,
+ 	}
+ 	defer func() {
++		go func() {
++			for i := 0; i < 60; i++ {
++				time.Sleep(time.Second)
++				_, err := os.Stat(r.Bundle)
++				logrus.Devour(err)
++				if os.IsNotExist(err) {
++					logrus.Errorf("bundle dir: %v does not exist, containerd-shim exit", r.Bundle)
++					os.Exit(0)
++				}
++			}
++		}()
+ 		if err != nil {
+ 			logrus.Errorf("create init %s failed error=%v", r.ID, err)
+ 			if err2 := mount.UnmountAll(rootfs, 0); err2 != nil {
+-- 
+2.33.0
+

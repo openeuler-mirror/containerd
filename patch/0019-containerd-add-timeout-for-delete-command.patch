@@ -1,0 +1,135 @@
+From fea270498ee58eb1a3632f564d4f3b72e9e713e7 Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni@huawei.com>
+Date: Tue, 3 Mar 2020 06:31:18 +0800
+Subject: [PATCH] containerd:add timeout for delete command
+
+Change-Id: I620d2f19a8ac9086b5c83792a6fe49b0389da87d
+Signed-off-by: xiadanni1 <xiadanni1@huawei.com>
+---
+ runtime/v1/linux/task.go                      |  2 +-
+ sys/reaper/reaper_unix.go                     | 18 -----------
+ .../github.com/containerd/go-runc/monitor.go  | 32 +++++++++++++++++--
+ vendor/github.com/containerd/go-runc/runc.go  |  3 +-
+ 4 files changed, 33 insertions(+), 22 deletions(-)
+
+diff --git a/runtime/v1/linux/task.go b/runtime/v1/linux/task.go
+index b013466..4145846 100644
+--- a/runtime/v1/linux/task.go
++++ b/runtime/v1/linux/task.go
+@@ -98,7 +98,7 @@ func (t *Task) PID(_ context.Context) (uint32, error) {
+ func (t *Task) delete(ctx context.Context, force bool, pid uint32) (*runtime.Exit, error) {
+ 	rsp, shimErr := t.shim.Delete(ctx, empty)
+ 	if shimErr != nil {
+-		log.G(ctx).WithError(shimErr).Error("failed to delete container, force=%t", force)
++		log.G(ctx).WithError(shimErr).Errorf("failed to delete container, force=%t", force)
+ 	}
+ 	t.tasks.Delete(ctx, t.id)
+ 	if err := t.shim.KillShim(ctx); err != nil {
+diff --git a/sys/reaper/reaper_unix.go b/sys/reaper/reaper_unix.go
+index 007e1d0..61c2e8a 100644
+--- a/sys/reaper/reaper_unix.go
++++ b/sys/reaper/reaper_unix.go
+@@ -22,10 +22,6 @@ package reaper
+ import (
+ 	"errors"
+ 	"fmt"
+-	"io/ioutil"
+-	"path/filepath"
+-	"strconv"
+-	"strings"
+ 	"sync"
+ 	"syscall"
+ 	"time"
+@@ -287,17 +283,3 @@ func exitStatus(status unix.WaitStatus) int {
+ 	}
+ 	return status.ExitStatus()
+ }
+-
+-func SameProcess(cmd *exec.Cmd, pid int) bool {
+-	bytes, err := ioutil.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+-	if err != nil {
+-		return false
+-	}
+-	for i := range bytes {
+-		if bytes[i] == 0 {
+-			bytes[i] = 32
+-		}
+-	}
+-	cmdline := string(bytes)
+-	return strings.EqualFold(cmdline, strings.Join(cmd.Args, " ")+" ")
+-}
+diff --git a/vendor/github.com/containerd/go-runc/monitor.go b/vendor/github.com/containerd/go-runc/monitor.go
+index 9756491..73c8ac1 100644
+--- a/vendor/github.com/containerd/go-runc/monitor.go
++++ b/vendor/github.com/containerd/go-runc/monitor.go
+@@ -17,9 +17,16 @@
+ package runc
+ 
+ import (
++	"io/ioutil"
+ 	"os/exec"
++	"path/filepath"
++	"strconv"
++	"strings"
+ 	"syscall"
+ 	"time"
++
++	"github.com/pkg/errors"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ var Monitor ProcessMonitor = &defaultMonitor{}
+@@ -77,6 +84,27 @@ func (m *defaultMonitor) Wait(c *exec.Cmd, ec chan Exit) (int, error) {
+ }
+ 
+ func (m *defaultMonitor) WaitTimeout(c *exec.Cmd, ec chan Exit, sec int64) (int, error) {
+-	e := <-ec
+-	return e.Status, nil
++        select {
++        case <-time.After(time.Duration(sec) * time.Second):
++                if SameProcess(c, c.Process.Pid) {
++                        logrus.Devour(syscall.Kill(c.Process.Pid, syscall.SIGKILL))
++                }
++                return 0, errors.Errorf("timeout %ds for cmd(pid=%d): %s, %s", sec, c.Process.Pid, c.Path, c.Args)
++        case e := <-ec:
++                return e.Status, nil
++        }
++}
++
++func SameProcess(cmd *exec.Cmd, pid int) bool {
++        bytes, err := ioutil.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
++        if err != nil {
++                return false
++        }
++        for i := range bytes {
++                if bytes[i] == 0 {
++                        bytes[i] = 32
++                }
++        }
++        cmdline := string(bytes)
++        return strings.EqualFold(cmdline, strings.Join(cmd.Args, " ")+" ")
+ }
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index ccf3d42..552515c 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -57,6 +57,7 @@ const (
+ 	defaultTimeout = 30
+ 	startTimeout   = 120
+ 	updateTimeout  = 60
++	deleteTimeout  = 120
+ )
+ 
+ var (
+@@ -328,7 +329,7 @@ func (r *Runc) Delete(context context.Context, id string, opts *DeleteOpts) erro
+ 	if opts != nil {
+ 		args = append(args, opts.args()...)
+ 	}
+-	return r.runOrError(r.command(context, append(args, id)...))
++	return r.runOrErrorTimeout(r.command(context, append(args, id)...), deleteTimeout)
+ }
+ 
+ // KillOpts specifies options for killing a container and its processes
+-- 
+2.33.0
+

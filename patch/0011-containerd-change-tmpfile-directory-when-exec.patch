@@ -1,0 +1,44 @@
+From db6e7286f573fa346b3e04f84968fc0bf15edee7 Mon Sep 17 00:00:00 2001
+From: wujibin <wujibin@huawei.com>
+Date: Wed, 14 Aug 2019 17:18:24 +0800
+Subject: [PATCH] containerd:change tmpfile directory when exec
+
+reason: tmp file stored /tmp before change, if mountain of containers
+are runing, the diretory will exist too many tmp file
+
+Change-Id: I1879ba9d09dca41a7571131d7447bf67356ea79c
+---
+ runtime/v1/linux/task.go                     | 3 ---
+ vendor/github.com/containerd/go-runc/runc.go | 2 +-
+ 2 files changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/runtime/v1/linux/task.go b/runtime/v1/linux/task.go
+index 70908ae..b013466 100644
+--- a/runtime/v1/linux/task.go
++++ b/runtime/v1/linux/task.go
+@@ -99,9 +99,6 @@ func (t *Task) delete(ctx context.Context, force bool, pid uint32) (*runtime.Exi
+ 	rsp, shimErr := t.shim.Delete(ctx, empty)
+ 	if shimErr != nil {
+ 		log.G(ctx).WithError(shimErr).Error("failed to delete container, force=%t", force)
+-		if !force {
+-			return nil, errdefs.FromGRPC(shimErr)
+-		}
+ 	}
+ 	t.tasks.Delete(ctx, t.id)
+ 	if err := t.shim.KillShim(ctx); err != nil {
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index 15fc8e1..20bb836 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -226,7 +226,7 @@ func (r *Runc) Exec(context context.Context, id string, spec specs.Process, opts
+ 	if opts.Started != nil {
+ 		defer close(opts.Started)
+ 	}
+-	f, err := ioutil.TempFile(os.Getenv("XDG_RUNTIME_DIR"), "runc-process")
++	f, err := ioutil.TempFile(".", "runc-process")
+ 	if err != nil {
+ 		return err
+ 	}
+-- 
+2.33.0
+

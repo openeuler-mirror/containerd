@@ -1,0 +1,86 @@
+From 4f4fd234119a7ccf7ab9e7cc122f30727ba39b81 Mon Sep 17 00:00:00 2001
+From: liuzekun <liuzekun@huawei.com>
+Date: Thu, 21 Nov 2019 08:23:35 -0500
+Subject: [PATCH] containerd: modify shim initiative exit time for post hook
+
+reason: Modify shim initiative exit time for post hook. In consideration
+of each post hook has a execution time with timeout(default 120s), we
+should ensure enough time to call all post hook.
+
+Signed-off-by: liuzekun <liuzekun@huawei.com>
+---
+ runtime/v1/shim/service.go | 32 ++++++++++++++++++++++++++------
+ 1 file changed, 26 insertions(+), 6 deletions(-)
+
+diff --git a/runtime/v1/shim/service.go b/runtime/v1/shim/service.go
+index 4e9dfee..166b866 100644
+--- a/runtime/v1/shim/service.go
++++ b/runtime/v1/shim/service.go
+@@ -561,12 +561,32 @@ func (s *Service) checkProcesses(e runc.Exit) {
+ 		log.G(s.context).Debugf("process with id:%d wasn't found", e.Pid)
+ 		return
+ 	}
++	shouldKillAll, bundleSpec := shouldKillAllOnExit(s.context, s.bundle)
+ 	if ip, ok := p.(*process.Init); ok {
+ 		ns := filepath.Base(filepath.Dir(ip.Bundle))
+ 		events.ExitAddFile(ns, events.ExitFile(s.id, uint32(e.Pid), uint32(e.Status)), "init exited")
+ 		events.InitExitWrite(ip.Bundle, e.Pid)
++		go func() {
++			t := 30
++			defer func() {
++				time.Sleep(time.Duration(t) * time.Second)
++				os.Exit(0)
++			}()
++			if bundleSpec.Hooks == nil {
++				return
++			}
++			postStopHooks := bundleSpec.Hooks.Poststop
++			for _, postStopHook := range postStopHooks {
++				hookTimeout := postStopHook.Timeout
++				if hookTimeout == nil {
++					t += 120
++				} else {
++					t += *hookTimeout
++				}
++			}
++		}()
+ 		// Ensure all children are killed
+-		if shouldKillAllOnExit(s.context, s.bundle) {
++		if shouldKillAll {
+ 			if err := ip.KillAll(s.context); err != nil {
+ 				log.G(s.context).WithError(err).WithField("id", ip.ID()).
+ 					Error("failed to kill init's children")
+@@ -584,25 +604,25 @@ func (s *Service) checkProcesses(e runc.Exit) {
+ 	}
+ }
+ 
+-func shouldKillAllOnExit(ctx context.Context, bundlePath string) bool {
++func shouldKillAllOnExit(ctx context.Context, bundlePath string) (bool, specs.Spec) {
+ 	var bundleSpec specs.Spec
+ 	bundleConfigContents, err := os.ReadFile(filepath.Join(bundlePath, "config.json"))
+ 	if err != nil {
+ 		log.G(ctx).WithError(err).Error("shouldKillAllOnExit: failed to read config.json")
+-		return true
++		return true, specs.Spec{}
+ 	}
+ 	if err := json.Unmarshal(bundleConfigContents, &bundleSpec); err != nil {
+ 		log.G(ctx).WithError(err).Error("shouldKillAllOnExit: failed to unmarshal bundle json")
+-		return true
++		return true, specs.Spec{}
+ 	}
+ 	if bundleSpec.Linux != nil {
+ 		for _, ns := range bundleSpec.Linux.Namespaces {
+ 			if ns.Type == specs.PIDNamespace && ns.Path == "" {
+-				return false
++				return false, bundleSpec
+ 			}
+ 		}
+ 	}
+-	return true
++	return true, bundleSpec
+ }
+ 
+ func (s *Service) getContainerPids(ctx context.Context, id string) ([]uint32, error) {
+-- 
+2.33.0
+

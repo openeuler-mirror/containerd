@@ -1,0 +1,35 @@
+From 2a40033d0fa4ae8cf843631c25562163edffc02d Mon Sep 17 00:00:00 2001
+From: chenjiankun <chenjiankun1@huawei.com>
+Date: Mon, 19 Apr 2021 17:08:09 +0800
+Subject: [PATCH] containerd: fix dm left when pause contaienr and kill shim
+
+
+when shim process be killed, we will delete the runtime, but if the
+status is paused, it can't be delete. So we need to resume the shim
+process before delete it.
+---
+ runtime/v1/linux/runtime.go | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index fa03e5c..18a0a40 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -572,6 +572,14 @@ func (r *Runtime) terminate(ctx context.Context, bundle *bundle, ns, id string)
+ 	if err != nil {
+ 		return err
+ 	}
++	state, err := rt.State(ctx, id)
++	if err == nil && state.Status == "paused" {
++		logrus.Warnf("container %s status is paused, try to resume before delete", id)
++		err := rt.Resume(ctx, id)
++		if err != nil {
++			log.G(ctx).WithError(err).Errorf("runtime resume %s error", id)
++		}
++	}
+ 	if err := rt.Delete(ctx, id, &runc.DeleteOpts{
+ 		Force: true,
+ 	}); err != nil {
+-- 
+2.33.0
+

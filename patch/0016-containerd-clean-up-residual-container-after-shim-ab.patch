@@ -1,0 +1,88 @@
+From f098df67f8b57c0dfce5d2177e7c3c51eee23b7a Mon Sep 17 00:00:00 2001
+From: zhangtianyang <zhangtianyang2@huawei.com>
+Date: Thu, 27 Feb 2020 16:51:59 +0800
+Subject: [PATCH] containerd: clean up residual container after shim abnormal
+ exit
+
+reason:from update/revert test an occasional failure has been found that
+shim process has exited but container is still running, then following exec
+call all report ttrpc close error.
+the triggering condition is uncertain. this patch will make up the clean
+work of the residual container after such failure occurred to avoid
+subsequent call errors.
+
+Change-Id: I0da9d4e46010cbe58f2fda21895caeb301936c47
+Signed-off-by: zhangtianyang <zhangtianyang2@huawei.com>
+---
+ runtime/v1/linux/runtime.go |  7 +++++++
+ services/tasks/local.go     | 24 ++++++++++++++++++++++++
+ 2 files changed, 31 insertions(+)
+
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index c2b146d..fa03e5c 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -560,6 +560,13 @@ func (r *Runtime) cleanupAfterDeadShim(ctx context.Context, bundle *bundle, ns,
+ 	return nil
+ }
+ 
++func (r *Runtime) CleanupAfterDeadShim(ctx context.Context, ns, id string) error {
++	bund := &bundle{id: id,
++		path:    filepath.Join(r.state, ns, id),
++		workDir: filepath.Join(r.root, ns, id)}
++	return r.cleanupAfterDeadShim(ctx, bund, ns, id)
++}
++
+ func (r *Runtime) terminate(ctx context.Context, bundle *bundle, ns, id string) error {
+ 	rt, err := r.getRuntime(ctx, ns, id)
+ 	if err != nil {
+diff --git a/services/tasks/local.go b/services/tasks/local.go
+index 96ed36c..7f60d25 100644
+--- a/services/tasks/local.go
++++ b/services/tasks/local.go
+@@ -43,6 +43,7 @@ import (
+ 	"github.com/containerd/containerd/plugin"
+ 	"github.com/containerd/containerd/runtime"
+ 	"github.com/containerd/containerd/runtime/linux/runctypes"
++	"github.com/containerd/containerd/runtime/v1/linux"
+ 	"github.com/containerd/containerd/runtime/v2/runc/options"
+ 	"github.com/containerd/containerd/services"
+ 	"github.com/containerd/typeurl"
+@@ -441,11 +442,34 @@ func (l *local) Kill(ctx context.Context, r *api.KillRequest, _ ...grpc.CallOpti
+ 		}
+ 	}
+ 	if err := p.Kill(ctx, r.Signal, r.All); err != nil {
++		if (r.Signal == 9 || r.Signal == 15) && strings.Contains(err.Error(), "ttrpc: client shutting down") {
++			// not sure under what conditions will cause such ttrpc error. since the error has
++			// happened, we have to make up the clean up work to avoid container residue.
++			cleanErr := l.cleanupResidualContainer(ctx, r, t.Namespace())
++			log.G(ctx).WithField("clean error", cleanErr).Warnf(
++				"previous actions might encounter failure, try clean up the dead container.")
++		}
+ 		return nil, errdefs.ToGRPC(err)
+ 	}
+ 	return empty, nil
+ }
+ 
++func (l *local) cleanupResidualContainer(ctx context.Context, r *api.KillRequest, namespace string) error {
++	container, err := l.getContainer(ctx, r.ContainerID)
++	if err != nil {
++		return fmt.Errorf("failed to get container %s, %v", r.ContainerID, err)
++	}
++	rt, err := l.getRuntime(container.Runtime.Name)
++	if err != nil {
++		return fmt.Errorf("failed to get runtime %s, %v", container.Runtime.Name, err)
++	}
++	lRuntime, ok := rt.(*linux.Runtime)
++	if !ok {
++		return fmt.Errorf("no clean work for runtime other than linux ones")
++	}
++	return lRuntime.CleanupAfterDeadShim(ctx, namespace, r.ContainerID)
++}
++
+ func (l *local) ListPids(ctx context.Context, r *api.ListPidsRequest, _ ...grpc.CallOption) (*api.ListPidsResponse, error) {
+ 	t, err := l.getTask(ctx, r.ContainerID)
+ 	if err != nil {
+-- 
+2.33.0
+

@@ -1,0 +1,140 @@
+From db530829309f6f37184748cd6823868b41f0be3c Mon Sep 17 00:00:00 2001
+From: xiadanni <xiadanni@huawei.com>
+Date: Fri, 3 Jan 2020 03:06:00 +0800
+Subject: [PATCH] containerd:add timeout for shim
+
+---
+ runtime/v1/linux/runtime.go                   |  2 +-
+ .../containerd/go-runc/command_other.go       |  1 +
+ vendor/github.com/containerd/go-runc/runc.go  | 37 +++++++++++++++----
+ 3 files changed, 31 insertions(+), 9 deletions(-)
+
+diff --git a/runtime/v1/linux/runtime.go b/runtime/v1/linux/runtime.go
+index ff8de53..c2b146d 100644
+--- a/runtime/v1/linux/runtime.go
++++ b/runtime/v1/linux/runtime.go
+@@ -437,7 +437,7 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+ 			if !events.ExitPending(ns, id, uint32(pid)) {
+ 				events.ExitAddFile(ns, events.ExitFile(id, uint32(pid), uint32(events.ExitStatusDefault)), "cleanup dirty task")
+ 			}
+-			err := r.cleanupAfterDeadShim(ctx, bundle, ns, id, pid)
++			err := r.cleanupAfterDeadShim(ctx, bundle, ns, id)
+ 			if err != nil {
+ 				log.G(ctx).WithError(err).WithField("bundle", bundle.path).
+ 					Error("cleaning up after dead shim")
+diff --git a/vendor/github.com/containerd/go-runc/command_other.go b/vendor/github.com/containerd/go-runc/command_other.go
+index b8fd4b8..75d41be 100644
+--- a/vendor/github.com/containerd/go-runc/command_other.go
++++ b/vendor/github.com/containerd/go-runc/command_other.go
+@@ -1,3 +1,4 @@
++//go:build !linux
+ // +build !linux
+ 
+ /*
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index 20bb836..ccf3d42 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -54,7 +54,9 @@ const (
+ 	Text Format = "text"
+ 	// DefaultCommand is the default command for Runc
+ 	DefaultCommand = "runc"
+-	execTimeout    = 30
++	defaultTimeout = 30
++	startTimeout   = 120
++	updateTimeout  = 60
+ )
+ 
+ var (
+@@ -86,7 +88,7 @@ func (r *Runc) List(context context.Context) ([]*Container, error) {
+ 
+ // State returns the state for the container provided by id
+ func (r *Runc) State(context context.Context, id string) (*Container, error) {
+-	data, err := cmdOutput(r.command(context, "state", id), true, nil)
++	data, err := cmdOutputTimeout(r.command(context, "state", id), true, nil, defaultTimeout)
+ 	defer putBuf(data)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("%s: %s", err, data.String())
+@@ -192,7 +194,7 @@ func (r *Runc) Create(context context.Context, id, bundle string, opts *CreateOp
+ 
+ // Start will start an already created container
+ func (r *Runc) Start(context context.Context, id string) error {
+-	return r.runOrError(r.command(context, "start", id))
++	return r.runOrErrorTimeout(r.command(context, "start", id), startTimeout)
+ }
+ 
+ type ExecOpts struct {
+@@ -249,7 +251,7 @@ func (r *Runc) Exec(context context.Context, id string, spec specs.Process, opts
+ 		opts.Set(cmd)
+ 	}
+ 	if cmd.Stdout == nil && cmd.Stderr == nil {
+-		data, err := cmdOutputTimeout(cmd, true, opts.Started, createTimeout)
++		data, err := cmdOutputTimeout(cmd, true, opts.Started, defaultTimeout)
+ 		defer putBuf(data)
+ 		if err != nil {
+ 			return fmt.Errorf("%w: %s", err, data.String())
+@@ -270,7 +272,7 @@ func (r *Runc) Exec(context context.Context, id string, spec specs.Process, opts
+ 			}
+ 		}
+ 	}
+-	status, err := Monitor.WaitTimeout(cmd, ec, execTimeout)
++	status, err := Monitor.WaitTimeout(cmd, ec, defaultTimeout)
+ 	if err == nil && status != 0 {
+ 		err = fmt.Errorf("%s did not terminate successfully: %w", cmd.Args[0], &ExitError{status})
+ 	}
+@@ -349,7 +351,7 @@ func (r *Runc) Kill(context context.Context, id string, sig int, opts *KillOpts)
+ 	if opts != nil {
+ 		args = append(args, opts.args()...)
+ 	}
+-	return r.runOrError(r.command(context, append(args, id, strconv.Itoa(sig))...))
++	return r.runOrErrorTimeout(r.command(context, append(args, id, strconv.Itoa(sig))...), defaultTimeout)
+ }
+ 
+ // Stats return the stats for a container like cpu, memory, and io
+@@ -425,7 +427,7 @@ func (r *Runc) Resume(context context.Context, id string) error {
+ 
+ // Ps lists all the processes inside the container returning their pids
+ func (r *Runc) Ps(context context.Context, id string) ([]int, error) {
+-	data, err := cmdOutput(r.command(context, "ps", "--format", "json", id), true, nil)
++	data, err := cmdOutputTimeout(r.command(context, "ps", "--format", "json", id), true, nil, defaultTimeout)
+ 	defer putBuf(data)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("%s: %s", err, data.String())
+@@ -638,7 +640,7 @@ func (r *Runc) Update(context context.Context, id string, resources *specs.Linux
+ 	args := []string{"update", "--resources", "-", id}
+ 	cmd := r.command(context, args...)
+ 	cmd.Stdin = buf
+-	return r.runOrError(cmd)
++	return r.runOrErrorTimeout(cmd, updateTimeout)
+ }
+ 
+ var ErrParseRuncVersion = errors.New("unable to parse runc version")
+@@ -731,6 +733,25 @@ func (r *Runc) runOrError(cmd *exec.Cmd) error {
+ 	return nil
+ }
+ 
++func (r *Runc) runOrErrorTimeout(cmd *exec.Cmd, runTimeout int64) error {
++	if cmd.Stdout != nil || cmd.Stderr != nil {
++		ec, err := Monitor.Start(cmd)
++		if err != nil {
++			return err
++		}
++		status, err := Monitor.WaitTimeout(cmd, ec, runTimeout)
++		if err == nil && status != 0 {
++			err = fmt.Errorf("%s did not terminate sucessfully", cmd.Args[0])
++		}
++		return err
++	}
++	data, err := cmdOutputTimeout(cmd, true, nil, runTimeout)
++	if err != nil {
++		return fmt.Errorf("%s: %s", err, data)
++	}
++	return nil
++}
++
+ // callers of cmdOutput are expected to call putBuf on the returned Buffer
+ // to ensure it is released back to the shared pool after use.
+ func cmdOutput(cmd *exec.Cmd, combined bool, started chan<- int) (*bytes.Buffer, error) {
+-- 
+2.33.0
+

@@ -1,0 +1,101 @@
+From 55064f7d04cb58b7ca9914a96d9831270cdd6887 Mon Sep 17 00:00:00 2001
+From: zhongjiawei <zhongjiawei1@huawei.com>
+Date: Mon, 7 Aug 2023 17:26:12 +0800
+Subject: [PATCH] containerd:Makefile modify
+
+---
+ Makefile           | 37 +++++++++++++++++++++----------------
+ version/version.go |  2 +-
+ 2 files changed, 22 insertions(+), 17 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index f1b28ce..5b5f54c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -30,8 +30,8 @@ MANDIR        ?= $(DATADIR)/man
+ TEST_IMAGE_LIST ?=
+ 
+ # Used to populate variables in version package.
+-VERSION ?= $(shell git describe --match 'v[0-9]*' --dirty='.m' --always)
+-REVISION=$(shell git rev-parse HEAD)$(shell if ! git diff --no-ext-diff --quiet --exit-code; then echo .m; fi)
++VERSION=$(shell cat ./containerd_version)
++REVISION=$(shell cat ./git-commit | head -c 40)
+ PACKAGE=github.com/containerd/containerd
+ SHIM_CGO_ENABLED ?= 0
+ 
+@@ -94,13 +94,11 @@ ifneq ($(STATIC),)
+ endif
+ GO_TAGS=$(if $(GO_BUILDTAGS),-tags "$(strip $(GO_BUILDTAGS))",)
+ 
+-GO_LDFLAGS=-ldflags '-X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -X $(PKG)/version.Package=$(PACKAGE) $(EXTRA_LDFLAGS)
+-ifneq ($(STATIC),)
+-	GO_LDFLAGS += -extldflags "-static"
+-endif
+-GO_LDFLAGS+='
++BEP_DIR=/tmp/containerd-build-bep
++BEP_FLAGS=-tmpdir=/tmp/containerd-build-bep
+ 
+-SHIM_GO_LDFLAGS=-ldflags '-X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -X $(PKG)/version.Package=$(PACKAGE) -extldflags "-static" $(EXTRA_LDFLAGS)'
++GO_LDFLAGS=-ldflags ' -buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(EXTRA_LDFLAGS)'
++SHIM_GO_LDFLAGS=-ldflags '-extldflags=-static' -ldflags '-buildid=IdByIsula $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -linkmode=external -extldflags=-Wl,-z,relro,-z,now'
+ 
+ # Project packages.
+ PACKAGES=$(shell $(GO) list ${GO_TAGS} ./... | grep -v /vendor/ | grep -v /integration)
+@@ -203,7 +201,7 @@ build: ## build the go packages
+ 
+ test: ## run tests, except integration tests and tests that require root
+ 	@echo "$(WHALE) $@"
+-	@$(GOTEST) ${TESTFLAGS} ${PACKAGES}
++	@go test ${TESTFLAGS} ./gc
+ 
+ root-test: ## run tests, except integration tests
+ 	@echo "$(WHALE) $@"
+@@ -239,18 +237,25 @@ benchmark: ## run benchmarks tests
+ 
+ FORCE:
+ 
+-define BUILD_BINARY
+-@echo "$(WHALE) $@"
+-@$(GO) build ${DEBUG_GO_GCFLAGS} ${GO_GCFLAGS} ${GO_BUILD_FLAGS} -o $@ ${GO_LDFLAGS} ${GO_TAGS}  ./$<
+-endef
+-
+ # Build a binary from a cmd.
+ bin/%: cmd/% FORCE
+-	$(call BUILD_BINARY)
++	mkdir -p $(BEP_DIR)
++	@echo "$(WHALE) $@${BINARY_SUFFIX}"
++	CGO_ENABLED=1 \
++	CGO_CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2" \
++	CGO_CPPFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2" \
++	CGO_LDFLAGS_ALLOW='-Wl,-z,relro,-z,now' \
++	CGO_LDFLAGS="-Wl,-z,relro,-z,now -Wl,-z,noexecstack" \
++	go build ${GO_GCFLAGS} ${GO_BUILD_FLAGS} -o $@${BINARY_SUFFIX} ${GO_LDFLAGS} ${GO_TAGS}  ./$<
+ 
+ bin/containerd-shim: cmd/containerd-shim FORCE # set !cgo and omit pie for a static shim build: https://github.com/golang/go/issues/17789#issuecomment-258542220
+ 	@echo "$(WHALE) $@"
+-	@CGO_ENABLED=${SHIM_CGO_ENABLED} $(GO) build ${GO_BUILD_FLAGS} -o $@ ${SHIM_GO_LDFLAGS} ${GO_TAGS} ./cmd/containerd-shim
++	CGO_ENABLED=1 \
++	CGO_CFLAGS="-fstack-protector-strong -fPIE -D_FORTIFY_SOURCE=2 -O2" \
++	CGO_CPPFLAGS="-fstack-protector-strong -fPIE -D_FORTIFY_SOURCE=2 -O2" \
++	CGO_LDFLAGS_ALLOW='-Wl,-z,relro,-z,now' \
++	CGO_LDFLAGS="-Wl,-z,relro,-z,now -Wl,-z,noexecstack" \
++	go build -buildmode=pie ${GO_BUILD_FLAGS} -o bin/containerd-shim ${SHIM_GO_LDFLAGS} ${GO_TAGS} ./cmd/containerd-shim
+ 
+ bin/containerd-shim-runc-v1: cmd/containerd-shim-runc-v1 FORCE # set !cgo and omit pie for a static shim build: https://github.com/golang/go/issues/17789#issuecomment-258542220
+ 	@echo "$(WHALE) $@"
+diff --git a/version/version.go b/version/version.go
+index de124ef..ab2dadc 100644
+--- a/version/version.go
++++ b/version/version.go
+@@ -20,7 +20,7 @@ import "runtime"
+ 
+ var (
+ 	// Package is filled at linking time
+-	Package = "github.com/containerd/containerd"
++	Package = ""
+ 
+ 	// Version holds the complete version number. Filled in at linking time.
+ 	Version = "1.6.22+unknown"
+-- 
+2.33.0
+
