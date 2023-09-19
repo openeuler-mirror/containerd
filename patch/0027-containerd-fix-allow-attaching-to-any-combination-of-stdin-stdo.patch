@@ -1,0 +1,250 @@
+From fe6bf665fd2c990a4c9db8323ee7e1a43eda7b4b Mon Sep 17 00:00:00 2001
+From: "Hsing-Yu (David) Chen" <davidhsingyuchen@gmail.com>
+Date: Tue, 28 Mar 2023 17:13:28 -0700
+Subject: [PATCH] fix: allow attaching to any combination of
+ stdin/stdout/stderr
+
+Before this PR, if a stdin/stdout/stderr stream is nil,
+and the corresponding FIFO is not an empty string,
+a panic will occur when Read/Write of the nil stream is invoked in io.CopyBuffer.
+
+Signed-off-by: Hsing-Yu (David) Chen <davidhsingyuchen@gmail.com>
+---
+ cio/io.go           |   9 ++
+ cio/io_unix_test.go | 203 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 212 insertions(+)
+
+diff --git a/cio/io.go b/cio/io.go
+index 8ee13edda..917684189 100644
+--- a/cio/io.go
++++ b/cio/io.go
+@@ -167,6 +167,15 @@ func NewAttach(opts ...Opt) Attach {
+ 		if fifos == nil {
+ 			return nil, fmt.Errorf("cannot attach, missing fifos")
+ 		}
++		if streams.Stdin == nil {
++			fifos.Stdin = ""
++		}
++		if streams.Stdout == nil {
++			fifos.Stdout = ""
++		}
++		if streams.Stderr == nil {
++			fifos.Stderr = ""
++		}
+ 		return copyIO(fifos, streams)
+ 	}
+ }
+diff --git a/cio/io_unix_test.go b/cio/io_unix_test.go
+index d4e0a70bf..cdaeb7738 100644
+--- a/cio/io_unix_test.go
++++ b/cio/io_unix_test.go
+@@ -95,3 +95,206 @@ func TestOpenFifosWithTerminal(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func assertHasPrefix(t *testing.T, s, prefix string) {
++	t.Helper()
++	if !strings.HasPrefix(s, prefix) {
++		t.Fatalf("expected %s to start with %s", s, prefix)
++	}
++}
++
++func TestNewFIFOSetInDir(t *testing.T) {
++	root := t.TempDir()
++
++	fifos, err := NewFIFOSetInDir(root, "theid", true)
++	assert.NoError(t, err)
++
++	dir := filepath.Dir(fifos.Stdin)
++	assertHasPrefix(t, dir, root)
++	expected := &FIFOSet{
++		Config: Config{
++			Stdin:    filepath.Join(dir, "theid-stdin"),
++			Stdout:   filepath.Join(dir, "theid-stdout"),
++			Stderr:   filepath.Join(dir, "theid-stderr"),
++			Terminal: true,
++		},
++	}
++
++	assert.Equal(t, fifos.Config, expected.Config)
++
++	files, err := os.ReadDir(root)
++	assert.NoError(t, err)
++	assert.Len(t, files, 1)
++
++	assert.Nil(t, fifos.Close())
++	files, err = os.ReadDir(root)
++	assert.NoError(t, err)
++	assert.Len(t, files, 0)
++}
++
++func TestNewAttach(t *testing.T) {
++	testCases := []struct {
++		name                                          string
++		expectedStdin, expectedStdout, expectedStderr string
++	}{
++		{
++			name:           "attach to all streams (stdin, stdout, and stderr)",
++			expectedStdin:  "this is the stdin",
++			expectedStdout: "this is the stdout",
++			expectedStderr: "this is the stderr",
++		},
++		{
++			name:           "don't attach to stdin",
++			expectedStdout: "this is the stdout",
++			expectedStderr: "this is the stderr",
++		},
++		{
++			name:           "don't attach to stdout",
++			expectedStdin:  "this is the stdin",
++			expectedStderr: "this is the stderr",
++		},
++		{
++			name:           "don't attach to stderr",
++			expectedStdin:  "this is the stdin",
++			expectedStdout: "this is the stdout",
++		},
++	}
++
++	for _, tc := range testCases {
++		t.Run(tc.name, func(t *testing.T) {
++			var (
++				stdin  = bytes.NewBufferString(tc.expectedStdin)
++				stdout = new(bytes.Buffer)
++				stderr = new(bytes.Buffer)
++
++				// The variables below have to be of the interface type (i.e., io.Reader/io.Writer)
++				// instead of the concrete type (i.e., *bytes.Buffer) *before* being passed to NewAttach.
++				// Otherwise, in NewAttach, the interface value won't be nil
++				// (it's just that the concrete value inside the interface itself is nil. [1]),
++				// which means that the corresponding FIFO path won't be set to be an empty string,
++				// and that's not what we want.
++				//
++				// [1] https://go.dev/tour/methods/12
++				stdinArg             io.Reader
++				stdoutArg, stderrArg io.Writer
++			)
++			if tc.expectedStdin != "" {
++				stdinArg = stdin
++			}
++			if tc.expectedStdout != "" {
++				stdoutArg = stdout
++			}
++			if tc.expectedStderr != "" {
++				stderrArg = stderr
++			}
++
++			attacher := NewAttach(WithStreams(stdinArg, stdoutArg, stderrArg))
++
++			fifos, err := NewFIFOSetInDir("", "theid", false)
++			assert.NoError(t, err)
++
++			attachedFifos, err := attacher(fifos)
++			assert.NoError(t, err)
++			defer attachedFifos.Close()
++
++			producers := setupFIFOProducers(t, attachedFifos.Config())
++			initProducers(t, producers, tc.expectedStdout, tc.expectedStderr)
++
++			var actualStdin []byte
++			if producers.Stdin != nil {
++				actualStdin, err = io.ReadAll(producers.Stdin)
++				assert.NoError(t, err)
++			}
++
++			attachedFifos.Wait()
++			attachedFifos.Cancel()
++			assert.Nil(t, attachedFifos.Close())
++
++			assert.Equal(t, tc.expectedStdout, stdout.String())
++			assert.Equal(t, tc.expectedStderr, stderr.String())
++			assert.Equal(t, tc.expectedStdin, string(actualStdin))
++		})
++	}
++}
++
++type producers struct {
++	Stdin  io.ReadCloser
++	Stdout io.WriteCloser
++	Stderr io.WriteCloser
++}
++
++func setupFIFOProducers(t *testing.T, fifos Config) producers {
++	var (
++		err   error
++		pipes producers
++		ctx   = context.Background()
++	)
++
++	if fifos.Stdin != "" {
++		pipes.Stdin, err = fifo.OpenFifo(ctx, fifos.Stdin, syscall.O_RDONLY, 0)
++		assert.NoError(t, err)
++	}
++
++	if fifos.Stdout != "" {
++		pipes.Stdout, err = fifo.OpenFifo(ctx, fifos.Stdout, syscall.O_WRONLY, 0)
++		assert.NoError(t, err)
++	}
++
++	if fifos.Stderr != "" {
++		pipes.Stderr, err = fifo.OpenFifo(ctx, fifos.Stderr, syscall.O_WRONLY, 0)
++		assert.NoError(t, err)
++	}
++
++	return pipes
++}
++
++func initProducers(t *testing.T, producers producers, stdout, stderr string) {
++	if producers.Stdout != nil {
++		_, err := producers.Stdout.Write([]byte(stdout))
++		assert.NoError(t, err)
++		assert.Nil(t, producers.Stdout.Close())
++	}
++
++	if producers.Stderr != nil {
++		_, err := producers.Stderr.Write([]byte(stderr))
++		assert.NoError(t, err)
++		assert.Nil(t, producers.Stderr.Close())
++	}
++}
++
++func TestLogURIGenerator(t *testing.T) {
++	baseTestLogURIGenerator(t, []LogURIGeneratorTestCase{
++		{
++			scheme:   "fifo",
++			path:     "/full/path/pipe.fifo",
++			expected: "fifo:///full/path/pipe.fifo",
++		},
++		{
++			scheme: "file",
++			path:   "/full/path/file.txt",
++			args: map[string]string{
++				"maxSize": "100MB",
++			},
++			expected: "file:///full/path/file.txt?maxSize=100MB",
++		},
++		{
++			scheme: "binary",
++			path:   "/full/path/bin",
++			args: map[string]string{
++				"id": "testing",
++			},
++			expected: "binary:///full/path/bin?id=testing",
++		},
++		{
++			scheme: "unknown",
++			path:   "nowhere",
++			err:    "must be absolute",
++		},
++		{
++			scheme: "binary",
++			path:   "C:\\path\\to\\binary",
++			// NOTE: Windows paths should not be parse-able outside of Windows:
++			err: "must be absolute",
++		},
++	})
++}
+-- 
+2.33.0
+
