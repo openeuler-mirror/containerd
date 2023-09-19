@@ -1,0 +1,35 @@
+From 4789ed1a8f4e846400be9a0d5cd28643b1b9b6e4 Mon Sep 17 00:00:00 2001
+From: "Hsing-Yu (David) Chen" <davidhsingyuchen@gmail.com>
+Date: Thu, 30 Mar 2023 18:38:54 -0700
+Subject: [PATCH] fix: cio.Cancel() should close the pipes
+
+PR fixes #8326.
+
+Signed-off-by: Hsing-Yu (David) Chen <davidhsingyuchen@gmail.com>
+---
+ cio/io_unix.go | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/cio/io_unix.go b/cio/io_unix.go
+index 5606cc88a..f7a12cf8d 100644
+--- a/cio/io_unix.go
++++ b/cio/io_unix.go
+@@ -99,7 +99,14 @@ func copyIO(fifos *FIFOSet, ioset *Streams) (*cio, error) {
+ 		config:  fifos.Config,
+ 		wg:      wg,
+ 		closers: append(pipes.closers(), fifos),
+-		cancel:  cancel,
++		cancel: func() {
++			cancel()
++			for _, c := range pipes.closers() {
++				if c != nil {
++					c.Close()
++				}
++			}
++		},
+ 	}, nil
+ }
+ 
+-- 
+2.33.0
+

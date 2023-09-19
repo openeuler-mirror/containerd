@@ -1,0 +1,26 @@
+From 26c96255462ea2abc3ec702b8303225c5a71a4a3 Mon Sep 17 00:00:00 2001
+From: Iceber Gu <wei.cai-nat@daocloud.io>
+Date: Mon, 17 Apr 2023 14:02:18 +0800
+Subject: [PATCH] fix unable to checkpoint the container more than once
+
+Signed-off-by: Iceber Gu <wei.cai-nat@daocloud.io>
+---
+ services/tasks/local.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/services/tasks/local.go b/services/tasks/local.go
+index 7f60d253a..d09fca200 100644
+--- a/services/tasks/local.go
++++ b/services/tasks/local.go
+@@ -707,7 +707,7 @@ func (l *local) writeContent(ctx context.Context, mediaType, ref string, r io.Re
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	if err := writer.Commit(ctx, 0, ""); err != nil {
++	if err := writer.Commit(ctx, 0, ""); err != nil && !errdefs.IsAlreadyExists(err) {
+ 		return nil, err
+ 	}
+ 	return &types.Descriptor{
+-- 
+2.33.0
+
