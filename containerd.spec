@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.6.22
 Name:           containerd
-Release:        3
+Release:        4
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -67,6 +67,12 @@ install -D -p -m 0644 %{S:7} %{buildroot}%{_sysconfdir}/containerd/config.toml
 %exclude %{_bindir}/containerd-stress
 
 %changelog
+* Thu Oct 19 2023 zhongjiawei<zhongjiawei1@huawei.com> - 1.6.22-4
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix some bugs after version upgrade
+
 * Tue Sep 19 2023 zhongjiawei<zhongjiawei1@huawei.com> - 1.6.22-3
 - Type:bugfix
 - ID:NA

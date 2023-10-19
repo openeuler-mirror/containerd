@@ -1,0 +1,58 @@
+From 086561d24d39af5cbc4d0d830e56c36e37e06df9 Mon Sep 17 00:00:00 2001
+From: zhongjiawei <zhongjiawei1@huawei.com>
+Date: Thu, 19 Oct 2023 10:08:49 +0800
+Subject: [PATCH] containerd:fix some containerd bug
+
+First,fix the bug the container status is not returned correctly 
+when executing the docker ps command.
+Second,fix the bug executing the docker top command does not return correct data
+
+Signed-off-by: zhongjiawei <zhongjiawei1@huawei.com>
+---
+ pkg/process/init.go                          | 9 ++++++++-
+ vendor/github.com/containerd/go-runc/runc.go | 2 +-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/pkg/process/init.go b/pkg/process/init.go
+index d373851..d48e5c6 100644
+--- a/pkg/process/init.go
++++ b/pkg/process/init.go
+@@ -250,7 +250,14 @@ func (p *Init) Status(ctx context.Context) (string, error) {
+ 	p.mu.Lock()
+ 	defer p.mu.Unlock()
+ 
+-	return p.initState.Status(ctx)
++	c, err := p.runtime.State(ctx, p.id)
++	if err != nil {
++		if strings.Contains(err.Error(), "does not exist") {
++			return "stopped", nil
++		}
++		return "", p.runtimeError(err, "OCI runtime state failed")
++	}
++	return c.Status, nil
+ }
+ 
+ // Start the init process
+diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/containerd/go-runc/runc.go
+index 6042b72..5804f5a 100644
+--- a/vendor/github.com/containerd/go-runc/runc.go
++++ b/vendor/github.com/containerd/go-runc/runc.go
+@@ -747,6 +747,7 @@ func (r *Runc) runOrErrorTimeout(cmd *exec.Cmd, runTimeout int64) error {
+ 		return err
+ 	}
+ 	data, err := cmdOutputTimeout(cmd, true, nil, runTimeout)
++	defer putBuf(data)
+ 	if err != nil {
+ 		return fmt.Errorf("%s: %s", err, data)
+ 	}
+@@ -780,7 +781,6 @@ func cmdOutput(cmd *exec.Cmd, combined bool, started chan<- int) (*bytes.Buffer,
+ 
+ func cmdOutputTimeout(cmd *exec.Cmd, combined bool, started chan<- int, timeout int64) (*bytes.Buffer, error) {
+ 	b := getBuf()
+-	defer putBuf(b)
+ 
+ 	cmd.Stdout = b
+ 	if combined {
+-- 
+2.33.0
+
