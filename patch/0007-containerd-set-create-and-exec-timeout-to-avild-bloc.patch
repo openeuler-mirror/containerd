@@ -92,7 +92,7 @@ diff --git a/vendor/github.com/containerd/go-runc/runc.go b/vendor/github.com/co
 index 0feedeb..15fc8e1 100644
 --- a/vendor/github.com/containerd/go-runc/runc.go
 +++ b/vendor/github.com/containerd/go-runc/runc.go
-@@ -54,8 +54,22 @@ const (
+@@ -54,8 +54,20 @@ const (
  	Text Format = "text"
  	// DefaultCommand is the default command for Runc
  	DefaultCommand = "runc"
@@ -105,9 +105,7 @@ index 0feedeb..15fc8e1 100644
 +
 +func init() {
 +	runtimeTimeout, err := convertTime(os.Getenv("DOCKER_RUNTIME_START_TIMEOUT"))
-+	if err != nil {
-+		logrus.Warnf("init error, wrong runtimeTimeout format: %v", err)
-+	} else {
++	if err == nil {
 +		createTimeout = runtimeTimeout
 +	}
 +}
