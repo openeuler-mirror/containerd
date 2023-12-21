@@ -1,0 +1,38 @@
+From 1c93da5ded1b80338ae4014084ce005f89e20a94 Mon Sep 17 00:00:00 2001
+From: Shiming Zhang <wzshiming@foxmail.com>
+Date: Mon, 31 Oct 2022 17:18:27 +0800
+Subject: [PATCH] Fix missing closed fifo
+
+Signed-off-by: Shiming Zhang <wzshiming@foxmail.com>
+---
+ runtime/v1/shim/service_linux.go | 1 +
+ runtime/v2/runc/platform.go      | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/runtime/v1/shim/service_linux.go b/runtime/v1/shim/service_linux.go
+index 499490601..d6a07e04d 100644
+--- a/runtime/v1/shim/service_linux.go
++++ b/runtime/v1/shim/service_linux.go
+@@ -61,6 +61,7 @@ func (p *linuxPlatform) CopyConsole(ctx context.Context, console console.Console
+ 			// we need to shutdown epollConsole when pipe broken
+ 			epollConsole.Shutdown(p.epoller.CloseConsole)
+ 			epollConsole.Close()
++			in.Close()
+ 		}()
+ 	}
+ 
+diff --git a/runtime/v2/runc/platform.go b/runtime/v2/runc/platform.go
+index c08d32912..65c017149 100644
+--- a/runtime/v2/runc/platform.go
++++ b/runtime/v2/runc/platform.go
+@@ -86,6 +86,7 @@ func (p *linuxPlatform) CopyConsole(ctx context.Context, console console.Console
+ 			// we need to shutdown epollConsole when pipe broken
+ 			epollConsole.Shutdown(p.epoller.CloseConsole)
+ 			epollConsole.Close()
++			in.Close()
+ 		}()
+ 	}
+ 
+-- 
+2.33.0
+
