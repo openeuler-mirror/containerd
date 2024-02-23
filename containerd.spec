@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.6.22
 Name:           containerd
-Release:        6
+Release:        7
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -67,6 +67,12 @@ install -D -p -m 0644 %{S:7} %{buildroot}%{_sysconfdir}/containerd/config.toml
 %exclude %{_bindir}/containerd-stress
 
 %changelog
+* Fri Feb 23 2024 zhongjiawei<zhongjiawei1@huawei.com> - 1.6.22-7
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:disable Transparent HugePage for shim process if SHIM_DISABLE_THP is set
+
 * Thu Dec 21 2023 zhongjiawei<zhongjiawei1@huawei.com> - 1.6.22-6
 - Type:bugfix
 - ID:NA
