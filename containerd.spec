@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Version:        1.6.22
 Name:           containerd
-Release:        9
+Release:        10
 Summary:        An industry-standard container runtime
 License:        ASL 2.0
 URL:            https://containerd.io
@@ -68,6 +68,12 @@ install -D -p -m 0644 %{S:7} %{buildroot}%{_sysconfdir}/containerd/config.toml
 %exclude %{_bindir}/containerd-stress
 
 %changelog
+* Thu Mar 21 2024 tiberium<jinzhe.oerv@isrc.iscas.ac.cn> - 1.6.22-10
+- Type:bugfix
+- ID:NA
+- SUG:NA
+- DESC:fix clang compile issue due to ldflags format error
+
 * Thu Mar 14 2024 laokz<zhangkai@iscas.ac.cn> - 1.6.22-9
 - Type:enhancement
 - ID:NA

@@ -36,7 +36,7 @@ index f1b28ce..5b5f54c 100644
 +BEP_FLAGS=-tmpdir=/tmp/containerd-build-bep
  
 -SHIM_GO_LDFLAGS=-ldflags '-X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -X $(PKG)/version.Package=$(PACKAGE) -extldflags "-static" $(EXTRA_LDFLAGS)'
-+GO_LDFLAGS=-ldflags ' -buildid=IdByIsula -extldflags=-zrelro -extldflags=-znow $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(EXTRA_LDFLAGS)'
++GO_LDFLAGS=-ldflags ' -buildid=IdByIsula -extldflags=-Wl,-z,relro,-z,now $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(EXTRA_LDFLAGS)'
 +SHIM_GO_LDFLAGS=-ldflags '-extldflags=-static' -ldflags '-buildid=IdByIsula $(BEP_FLAGS) -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) -linkmode=external -extldflags=-Wl,-z,relro,-z,now'
  
  # Project packages.
